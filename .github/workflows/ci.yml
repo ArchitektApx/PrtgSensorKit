@@ -2,7 +2,9 @@ name: CI
 
 on:
   push:
+    branches: ['**']   # branch pushes only; tags are handled by release.yml (which calls this)
   pull_request:
+  workflow_call:       # invoked by release.yml so a release is gated on CI passing
   workflow_dispatch:
 
 jobs:

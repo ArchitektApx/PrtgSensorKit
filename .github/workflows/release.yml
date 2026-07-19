@@ -1,0 +1,68 @@
+name: Release
+
+# Tag a commit as vX.Y.Z (matching ModuleVersion in the manifest) and push the tag to publish.
+# Requires a repository secret PSGALLERY_API_KEY (a PowerShell Gallery API key).
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:   # build + test only (no publish) for a dry run
+
+permissions:
+  contents: write      # needed to create the GitHub release
+
+jobs:
+  # Run the full CI matrix (build + lint + test on WinPS 5.1 / pwsh across OSes) first.
+  # The release job below only runs if this succeeds.
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: ci
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dev requirements
+        shell: pwsh
+        run: ./tasks.ps1 -Task install_dev_requirements
+
+      - name: Build
+        shell: pwsh
+        run: ./tasks.ps1 -Task build
+
+      - name: Resolve module path and version
+        id: mod
+        shell: pwsh
+        run: |
+          $manifest = Get-ChildItem ./Dist -Recurse -Filter PrtgSensorKit.psd1 | Select-Object -First 1
+          if (-not $manifest) { throw "Built module not found under Dist/." }
+          $version = (Import-PowerShellDataFile $manifest.FullName).ModuleVersion
+          # On a tag push, the tag (vX.Y.Z) must match the manifest version.
+          if ($env:GITHUB_REF -like 'refs/tags/*') {
+            $tag = $env:GITHUB_REF_NAME -replace '^v', ''
+            if ($tag -ne $version) {
+              throw "Tag '$($env:GITHUB_REF_NAME)' does not match module version '$version'."
+            }
+          }
+          "dir=$($manifest.Directory.FullName)" | Out-File $env:GITHUB_OUTPUT -Append
+          "version=$version"                    | Out-File $env:GITHUB_OUTPUT -Append
+
+      - name: Package module
+        shell: pwsh
+        run: Compress-Archive -Path '${{ steps.mod.outputs.dir }}/*' -DestinationPath "PrtgSensorKit-${{ steps.mod.outputs.version }}.zip" -Force
+
+      - name: Publish to PowerShell Gallery
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        env:
+          NUGET_KEY: ${{ secrets.PSGALLERY_API_KEY }}
+        run: |
+          if (-not $env:NUGET_KEY) { throw "Secret PSGALLERY_API_KEY is not set." }
+          Publish-Module -Path '${{ steps.mod.outputs.dir }}' -NuGetApiKey $env:NUGET_KEY -Verbose
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: PrtgSensorKit-${{ steps.mod.outputs.version }}.zip
+          generate_release_notes: true

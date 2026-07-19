@@ -92,10 +92,10 @@ PrivateData = @{
     PSData = @{
 
         # Tags applied to this module. These help with module discovery in online galleries.
-        Tags = @('PRTG', 'Monitoring', 'Sensor', 'Paessler', 'Custom-Sensor', 'PowerShell')
+        Tags = @('PRTG', 'Monitoring', 'Sensor', 'Custom-Sensor', 'PowerShell', 'Pwsh', 'Framework')
 
         # A URL to the license for this module.
-        LicenseUri = 'https://github.com/ArchitektApx/PrtgSensorKit/blob/main/LICENSE'
+        LicenseUri = 'https://github.com/ArchitektApx/PrtgSensorKit/blob/master/LICENSE'
 
         # A URL to the main website for this project.
         ProjectUri = 'https://github.com/ArchitektApx/PrtgSensorKit'
