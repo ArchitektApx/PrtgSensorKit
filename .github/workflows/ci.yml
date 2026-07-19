@@ -14,26 +14,28 @@ jobs:
       matrix:
         include:
           # Windows PowerShell 5.1 (Desktop) is the real PRTG sensor runtime.
-          - { os: windows-latest, shell: powershell, name: 'win / WinPS 5.1' }
-          # PowerShell 7+ on Windows and Linux for cross-edition coverage.
-          - { os: windows-latest, shell: pwsh, name: 'win / pwsh 7' }
-          - { os: ubuntu-latest,  shell: pwsh, name: 'linux / pwsh 7' }
-          - { os: macos-latest,  shell: pwsh, name: 'macos / pwsh 7' }
+          - { os: windows-latest, host: powershell, name: 'win / WinPS 5.1' }
+          # PowerShell 7+ on Windows, Linux, and macOS for cross-edition coverage.
+          - { os: windows-latest, host: pwsh, name: 'win / pwsh 7' }
+          - { os: ubuntu-latest,  host: pwsh, name: 'linux / pwsh 7' }
+          - { os: macos-latest,   host: pwsh, name: 'macos / pwsh 7' }
     steps:
       - uses: actions/checkout@v4
 
+      # matrix.host selects the runtime: 'powershell' = Windows PowerShell 5.1, 'pwsh' = PowerShell 7+.
+      # The shell key cannot use the matrix context, so run under pwsh and invoke the target host.
       - name: Install dev requirements
-        shell: ${{ matrix.shell }}
-        run: ./tasks.ps1 -Task install_dev_requirements
+        shell: pwsh
+        run: ${{ matrix.host }} -NoProfile -ExecutionPolicy Bypass -File ./tasks.ps1 -Task install_dev_requirements
 
       - name: Lint
-        shell: ${{ matrix.shell }}
-        run: ./tasks.ps1 -Task lint
+        shell: pwsh
+        run: ${{ matrix.host }} -NoProfile -ExecutionPolicy Bypass -File ./tasks.ps1 -Task lint
 
       - name: Build
-        shell: ${{ matrix.shell }}
-        run: ./tasks.ps1 -Task build
+        shell: pwsh
+        run: ${{ matrix.host }} -NoProfile -ExecutionPolicy Bypass -File ./tasks.ps1 -Task build
 
       - name: Test
-        shell: ${{ matrix.shell }}
-        run: ./tasks.ps1 -Task test
+        shell: pwsh
+        run: ${{ matrix.host }} -NoProfile -ExecutionPolicy Bypass -File ./tasks.ps1 -Task test
