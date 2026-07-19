@@ -1,0 +1,16 @@
+# Build output
+Dist/
+
+# PowerShell / editor cruft
+*.user
+.vs/
+
+# Windows Test VM
+.testvm
+
+# Code coverage
+coverage.xml
+
+# IDEs
+.claude/
+.vscode/

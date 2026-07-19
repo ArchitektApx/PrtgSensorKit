@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Windows PowerShell 5.1 (Desktop) is the real PRTG sensor runtime.
+          - { os: windows-latest, shell: powershell, name: 'win / WinPS 5.1' }
+          # PowerShell 7+ on Windows and Linux for cross-edition coverage.
+          - { os: windows-latest, shell: pwsh, name: 'win / pwsh 7' }
+          - { os: ubuntu-latest,  shell: pwsh, name: 'linux / pwsh 7' }
+          - { os: macos-latest,  shell: pwsh, name: 'macos / pwsh 7' }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install dev requirements
+        shell: ${{ matrix.shell }}
+        run: ./tasks.ps1 -Task install_dev_requirements
+
+      - name: Lint
+        shell: ${{ matrix.shell }}
+        run: ./tasks.ps1 -Task lint
+
+      - name: Build
+        shell: ${{ matrix.shell }}
+        run: ./tasks.ps1 -Task build
+
+      - name: Test
+        shell: ${{ matrix.shell }}
+        run: ./tasks.ps1 -Task test
