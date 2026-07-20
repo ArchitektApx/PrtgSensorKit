@@ -43,8 +43,8 @@ Local System), from Windows PowerShell:
 Install-Module PrtgSensorKit -Scope AllUsers
 ```
 
-If your sensor uses `Restart-InPwsh`, also install it in **PowerShell 7+**, which has its own
-module path:
+If your sensor uses `Restart-InPwsh`, also install PrtgSensorKit in **PowerShell 7+**, which has
+its own module path:
 
 ```powershell
 # Run from pwsh
@@ -55,14 +55,14 @@ Install-Module PrtgSensorKit -Scope AllUsers
 but **the modules _your_ sensor imports must be installed in the host where your code actually
 runs**, which depends on whether you call a `Restart-*` helper:
 
-| Your sensor... |  Install your dependency modules for |
+| Your sensor... | Install your dependency modules for |
 | --- | --- |
-| uses no `Restart-*` | 32-bit Windows PowerShell 5.1 (what PRTG starts)
-| calls `Restart-As64BitPowershell` | 64-bit Windows PowerShell 5.1
-| calls `Restart-InPwsh` | PowerShell 7+ (pwsh)
+| uses no `Restart-*` | 32-bit Windows PowerShell 5.1 (what PRTG starts) |
+| calls `Restart-As64BitPowershell` | 64-bit Windows PowerShell 5.1 |
+| calls `Restart-InPwsh` | PowerShell 7+ (pwsh) |
 
 For Windows PowerShell the AllUsers/CurrentUser module folders are shared between the 32-bit and
-64-bit hosts, so a normal `Install-Module` makes a script module visible to both but the bitness still matters for modules with **native/architecture-specific** components (e.g. `SqlServer`): 
+64-bit hosts, so a normal `Install-Module` makes a script module visible to both but the bitness still matters for modules with **native/architecture-specific** components (e.g. `SqlServer`):
 
 *always* run the install from a process of the matching bitness so the correct binaries are present!
 
@@ -72,46 +72,12 @@ Then *always* put your `Import-Module` lines **after** the `Restart-*` call (see
 ## 🚀 Your first PRTG sensor
 
 Save this as an `EXE/Script Advanced` sensor script in
-`C:\Program Files (x86)\PRTG Network Monitor\Custom Sensors\EXEXML\`:
+`C:\Program Files (x86)\PRTG Network Monitor\Custom Sensors\EXEXML\`.
 
-```powershell
-# Stop on the first error so the trap below catches it (required for the trap pattern)
-$ErrorActionPreference = 'Stop'
-
-Import-Module PrtgSensorKit
-
-# Report any unhandled error to PRTG as a sensor error, then stop
-trap {
-  $_ | Write-PrtgError
-  return
-}
-
-# Your code to gather metrics here
-# Example:
-$cpuUsage = Get-Process | 
-  ForEach-Object { $_.CPU } | 
-  Measure-Object -Average | 
-  Select-Object -ExpandProperty Average
-
-# Add one or more channels
-New-PrtgChannel -Channel 'CPU Usage' -Value $cpuUsage -Unit Percent | Add-PrtgChannel
-
-# Optional sensor message
-Set-PrtgMessage 'CPU usage average'
-
-# Emit the JSON PRTG reads
-Write-PrtgOutput
-```
-
-> **Making web requests in your sensor?** On Windows PowerShell 5.1, enable TLS 1.2 first:
-> `[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12`
-
-## 🎁 Batteries-included: `Invoke-PrtgSensor`
-
-New to this? Skip the boilerplate. Put your channel-building logic in a script block and
-`Invoke-PrtgSensor` handles the rest — it sets `$ErrorActionPreference`, catches errors and
-turns them into a PRTG error response, keeps stray output from corrupting the result (see the
-warning below), and emits exactly one valid response:
+Put your channel-building logic in a script block and `Invoke-PrtgSensor` handles the rest —
+it catches errors and turns them into a PRTG error response,
+keeps stray output from corrupting the result (see the warning below), and emits exactly one
+valid response:
 
 ```powershell
 Import-Module PrtgSensorKit
@@ -126,9 +92,6 @@ Invoke-PrtgSensor {
   Set-PrtgMessage 'CPU usage average'
 }
 ```
-
-Inside the block, build channels and set the message — **do not** call `Write-PrtgOutput` or
-`Write-PrtgError` yourself; the wrapper emits the single response.
 
 Your script's `param()` values and other script-scope variables are visible inside the block, so
 sensors that take parameters work unchanged:
@@ -145,12 +108,16 @@ Invoke-PrtgSensor {
 }
 ```
 
+> [!TIP]
+> **Making web requests in your sensor?** On Windows PowerShell 5.1, enable TLS 1.2 first:
+> `[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12`
+
+> [!WARNING]
 > ⚠️ **Never write to the output stream in your sensor code.** PRTG reads the sensor result
 > from the process **standard output**, which must contain **only** the JSON. A stray
 > `Write-Host`, a bare `Write-Output`, or an un-captured command that returns objects (e.g.
 > `Get-Process` on its own line) will corrupt the result. `Invoke-PrtgSensor` discards that
-> output for you; with the manual pattern, make sure every command's output is piped into a
-> channel, assigned to a variable, or sent to `Out-Null`. **To debug, log to a file** — e.g.
+> output for you. **To debug, log to a file** — e.g.
 > `"$(Get-Date -f o) checking disk" | Add-Content C:\Temp\mysensor.log` — never to output.
 
 ## 📊 Channels
@@ -160,45 +127,28 @@ PRTG allows a **maximum of 50 channels** per sensor — adding a 51st throws.
 
 ```powershell
 # Percentage with a float value and lower limits
-New-PrtgChannel -Channel 'Disk Free %' -Value 25.0 -Unit Percent -Float `
-  -LimitMinWarning 20 -LimitMinError 10 -LimitMode $true |
-  Add-PrtgChannel
+Import-Module PrtgSensorKit
 
-# Response time with upper limits and a custom warning message
-New-PrtgChannel -Channel 'Response Time' -Value 120 -Unit TimeResponse `
-  -LimitMaxWarning 100 -LimitMaxError 500 -LimitWarningMsg 'Slow' -LimitMode $true |
-  Add-PrtgChannel
+Invoke-PrtgSensor {
+  New-PrtgChannel -Channel 'Disk Free %' -Value 25.0 -Unit Percent -Float `
+    -LimitMinWarning 20 -LimitMinError 10 -LimitMode $true |
+    Add-PrtgChannel
 
-# One channel per process
-Get-Process | ForEach-Object {
-  New-PrtgChannel -Channel $_.ProcessName -Value $_.CPU -Float
-} | Add-PrtgChannel
+  # Response time with upper limits and a custom warning message
+  New-PrtgChannel -Channel 'Response Time' -Value 120 -Unit TimeResponse `
+    -LimitMaxWarning 100 -LimitMaxError 500 -LimitWarningMsg 'Slow' -LimitMode $true |
+    Add-PrtgChannel
 
-Write-PrtgOutput
+  # One channel per process
+  Get-Process | ForEach-Object {
+    New-PrtgChannel -Channel $_.ProcessName -Value $_.CPU -Float
+  } | Add-PrtgChannel
+}
 ```
 
 Use `-Float` (or pass a decimal value) whenever the value is not a whole number, otherwise
 PRTG may show `0`. See `Get-Help New-PrtgChannel -Full` for every unit, limit, and lookup
 parameter.
-
-## ❌ Returning errors to PRTG
-
-A PRTG error response replaces all channel data with a single error message.
-
-```powershell
-# Simple message
-Write-PrtgError -ErrorString 'My error message'
-
-# From a try/catch (includes line/char/message)
-try {
-  # your code here
-} catch {
-  $_ | Write-PrtgError
-}
-```
-
-The number sign (`#`) is stripped and messages are truncated to 2000 characters automatically,
-as PRTG requires.
 
 ## 🔀 Running in 64-bit PowerShell or in PowerShell 7+
 
@@ -209,16 +159,16 @@ script can assume the correct runtime. Both are no-ops when already in the targe
 
 ```powershell
 Import-Module PrtgSensorKit
-$ErrorActionPreference = 'Stop'
-trap { $_ | Write-PrtgError; return }
 
 Restart-As64BitPowershell   # ensure 64-bit
 Restart-InPwsh              # ensure PowerShell 7+ (warns and continues if pwsh is absent)
 
-# Import the modules your sensor needs AFTER the restart, not before (see warning)
-Import-Module SqlServer
+Invoke-PrtgSensor {
+  # Import the modules your sensor needs AFTER the restart, not before
+  Import-Module SqlServer
 
-# your sensor code here
+  # your sensor code here
+}
 ```
 
 > [!WARNING]
@@ -230,17 +180,8 @@ Import-Module SqlServer
 > host, and your `Import-Module` lines after it load the modules where they are actually
 > visible. (`Import-Module PrtgSensorKit` itself is fine anywhere — it works in every edition.)
 
-> [!WARNING] 
-> **Using `Invoke-PrtgSensor`?** Call the `Restart-*` helpers at the top of your script,
-> **before** `Invoke-PrtgSensor` — never inside the block. They relaunch the sensor as a child
-> process, and its output would be discarded by the wrapper's output guard (the sensor would
-> emit nothing). `Import-Module` inside the block is fine.
->
-> ```powershell
-> Import-Module PrtgSensorKit
-> Restart-As64BitPowershell # top level, before the wrapper
-> Invoke-PrtgSensor { <# channels here #> }
-> ```
+> [!WARNING]
+> Never call the `Restart-*` helpers inside the `Invoke-PrtgSensor` script block.
 
 ## 🔐 Credentials and secrets
 
@@ -291,11 +232,13 @@ Get-Help New-PrtgChannel -Examples    # just the runnable examples
 Get-Help New-PrtgChannel -Parameter Unit   # help for one parameter
 ```
 
-> [!TIP] 
->`-Full` is the one to reach for while writing a sensor — it lists every unit, limit, and
+> [!TIP]
+> `-Full` is the one to reach for while writing a sensor — it lists every unit, limit, and
 > lookup parameter with a description. This works for all commands below.
 
 ## 🧰 Commands
+
+### Main Commands
 
 | Command | Purpose |
 | --- | --- |
@@ -303,15 +246,65 @@ Get-Help New-PrtgChannel -Parameter Unit   # help for one parameter
 | [`New-PrtgChannel`](Source/Public/New-PrtgChannel.ps1) | Build a channel object |
 | [`Add-PrtgChannel`](Source/Public/Add-PrtgChannel.ps1) | Add a channel to the sensor output (max 50) |
 | [`Set-PrtgMessage`](Source/Public/Set-PrtgMessage.ps1) | Set the sensor message |
-| [`Get-PrtgMessage`](Source/Public/Get-PrtgMessage.ps1) | Read the current sensor message |
-| [`Write-PrtgOutput`](Source/Public/Write-PrtgOutput.ps1) | Emit the sensor JSON |
-| [`Write-PrtgError`](Source/Public/Write-PrtgError.ps1) | Emit a PRTG error response |
-| [`Clear-PrtgOutput`](Source/Public/Clear-PrtgOutput.ps1) | Clear channels and message |
-| [`Set-PrtgOutput`](Source/Public/Set-PrtgOutput.ps1) | Replace the entire output object (advanced) |
+| [`Get-PrtgMessage`](Source/Public/Get-PrtgMessage.ps1) | Get the current sensor message |
 | [`Save-PrtgSecret`](Source/Public/Save-PrtgSecret.ps1) | Store an API token or credential, DPAPI-encrypted |
 | [`Get-PrtgSecret`](Source/Public/Get-PrtgSecret.ps1) | Read a stored secret in a sensor |
 | [`Restart-As64BitPowershell`](Source/Public/Restart-As64BitPowershell.ps1) | Re-launch the sensor in 64-bit PowerShell |
 | [`Restart-InPwsh`](Source/Public/Restart-InPwsh.ps1) | Re-launch the sensor in PowerShell 7+ |
+
+### Lower-level Commands (advanced)
+
+| Command | Purpose |
+| --- | --- |
+| [`Write-PrtgOutput`](Source/Public/Write-PrtgOutput.ps1) | Emit the sensor JSON |
+| [`Write-PrtgError`](Source/Public/Write-PrtgError.ps1) | Emit a PRTG error response |
+| [`Clear-PrtgOutput`](Source/Public/Clear-PrtgOutput.ps1) | Clear channels and message |
+| [`Set-PrtgOutput`](Source/Public/Set-PrtgOutput.ps1) | Hand-roll your own sensor output object |
+
+## ❌ Custom errors and output control
+
+`Invoke-PrtgSensor` sets **all errors** to **terminating**, catches the error/exception object, and returns it as a parsed error response to PRTG.
+
+```plaintext
+line:22 char:13
+--- message: The remote server returned an error: (500) Internal Server Error.
+--- line: $Response = Invoke-RestMethod -Method Get -Uri $URL -Headers $Header
+```
+
+If you just want **some** errors to be non-terminating, you can override this by using the `-ErrorAction` parameter on the cmdlet or by setting the `$ErrorActionPreference` to `'SilentlyContinue'` and then back to `'Stop'` when you want `Invoke-PrtgSensor` to handle errors again.
+
+See [16-making-errors-nonterminating.ps1](Examples/16-making-errors-nonterminating.ps1) for a more detailed example on how to make some errors non-terminating.
+
+If you want even more fine-grained control over errors and output, you can use the lower-level cmdlets yourself.
+
+```powershell
+Import-Module PrtgSensorKit
+
+# Always call Clear-PrtgOutput before defining any channels or setting a message/error to
+# generate an empty output object in the scope
+Clear-PrtgOutput
+
+$API_URL = 'https://api.example.com/data'
+$Header = @{
+  'Authorization' = 'Bearer 1234567890'
+}
+
+try {
+  $Response = Invoke-RestMethod -Method Get -Uri $API_URL -Headers $Header -ErrorAction Stop
+  New-PrtgChannel -Channel 'Response' -Value $Response.Status | Add-PrtgChannel
+  Write-PrtgOutput
+} catch {
+  Write-PrtgError -ErrorString 'My custom error message'
+}
+```
+
+When manually using the lower-level cmdlets, make sure to follow some **important limitations**:
+- **Every** command's output has to be piped into a channel, assigned to a variable, or sent to `Out-Null` — there's no output guard here.
+- **On your happy path**, call `Write-PrtgOutput` to emit the sensor JSON.
+- **On your error path**, call `Write-PrtgError` to emit an error response.
+- **`Write-PrtgOutput` and `Write-PrtgError` should always short-circuit the execution of your script**, otherwise the output will be corrupted.
+
+See [04-manual-output-and-errors.ps1](Examples/04-manual-output-and-errors.ps1) for a more detailed example on how to use the lower-level cmdlets.
 
 ## 🛠️ Building from source
 
