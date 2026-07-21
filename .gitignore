@@ -7,6 +7,7 @@ Dist/
 
 # Windows Test VM
 .testvm
+.deployToTestVM.sh
 
 # Code coverage
 coverage.xml
