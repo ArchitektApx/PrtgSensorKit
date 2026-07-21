@@ -45,6 +45,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Same cache as the CI matrix (see ci.yml): skips Install-Module on a hit.
+      - name: Cache PowerShell modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/powershell/Modules
+          key: psmodules-ubuntu-latest-pwsh-${{ hashFiles('Tools/install_dev_requirements.ps1') }}
+
       - name: Install dev requirements
         shell: pwsh
         run: ./tasks.ps1 -Task install_dev_requirements

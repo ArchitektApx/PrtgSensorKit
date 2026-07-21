@@ -15,14 +15,29 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # modulePath is the host's CurrentUser module folder, cached below so the slow
+          # first Install-Module (minutes under WinPS 5.1's inbox PowerShellGet) is paid
+          # only when Tools/install_dev_requirements.ps1 changes.
           # Windows PowerShell 5.1 (Desktop) is the real PRTG sensor runtime.
-          - { os: windows-latest, host: powershell, name: 'win / WinPS 5.1' }
+          - { os: windows-latest, host: powershell, name: 'win / WinPS 5.1',
+              modulePath: '~\Documents\WindowsPowerShell\Modules' }
           # PowerShell 7+ on Windows, Linux, and macOS for cross-edition coverage.
-          - { os: windows-latest, host: pwsh, name: 'win / pwsh 7' }
-          - { os: ubuntu-latest,  host: pwsh, name: 'linux / pwsh 7' }
-          - { os: macos-latest,   host: pwsh, name: 'macos / pwsh 7' }
+          - { os: windows-latest, host: pwsh, name: 'win / pwsh 7',
+              modulePath: '~\Documents\PowerShell\Modules' }
+          - { os: ubuntu-latest,  host: pwsh, name: 'linux / pwsh 7',
+              modulePath: '~/.local/share/powershell/Modules' }
+          - { os: macos-latest,   host: pwsh, name: 'macos / pwsh 7',
+              modulePath: '~/.local/share/powershell/Modules' }
     steps:
       - uses: actions/checkout@v4
+
+      # On a cache hit the install script finds the modules via Get-Module -ListAvailable
+      # and skips Install-Module entirely.
+      - name: Cache PowerShell modules
+        uses: actions/cache@v4
+        with:
+          path: ${{ matrix.modulePath }}
+          key: psmodules-${{ matrix.os }}-${{ matrix.host }}-${{ hashFiles('Tools/install_dev_requirements.ps1') }}
 
       # matrix.host selects the runtime: 'powershell' = Windows PowerShell 5.1, 'pwsh' = PowerShell 7+.
       # The shell key cannot use the matrix context, so run under pwsh and invoke the target host.
