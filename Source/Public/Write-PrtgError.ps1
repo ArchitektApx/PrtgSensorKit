@@ -49,10 +49,7 @@ function Write-PrtgError {
   )
 
   $RawText = if ($PsCmdlet.ParameterSetName -eq 'ErrorObject') {
-    "line:$($ErrorObject.InvocationInfo.ScriptLineNumber.ToString()) " +
-    "char:$($ErrorObject.InvocationInfo.OffsetInLine.ToString()) --- " +
-    "message: $($ErrorObject.Exception.Message.ToString()) --- " +
-    "line: $($ErrorObject.InvocationInfo.Line.ToString())"
+    Format-PrtgErrorText -ErrorObject $ErrorObject
   } else {
     $ErrorString
   }

@@ -27,4 +27,10 @@ Describe 'Write-PrtgError' {
     $errs = 1..2 | ForEach-Object { try { throw "e$_" } catch { $_ } }
     ($errs | Write-PrtgError | Measure-Object).Count | Should -Be 1
   }
+
+  It 'keeps the exact line/char/message/source rendering (Format-PrtgErrorText regression)' {
+    $rec = try { throw 'zap' } catch { $_ }
+    $obj = ($rec | Write-PrtgError) | ConvertFrom-Json
+    $obj.prtg.text | Should -Match '^line:\d+ char:\d+ --- message: zap --- line: '
+  }
 }
