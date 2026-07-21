@@ -5,7 +5,7 @@
 **PowerShell framework for building [PRTG](https://www.paessler.com/) custom EXE/Script Advanced sensors — less boilerplate, valid JSON output every time.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/Version-1.0.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-1.1.0-green.svg)](CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/PowerShell-5.1%20|%207+-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![Built with ModuleBuilder](https://img.shields.io/badge/Built%20with-ModuleBuilder-8A2BE2.svg)](https://github.com/PoshCode/ModuleBuilder)
 
@@ -23,6 +23,9 @@ formatting the JSON PRTG expects, capping channels/message length, and reporting
 - 🪆 **Pipe-friendly** — chain `New-PrtgChannel | Add-PrtgChannel` with no intermediate variables.
 - 🔀 **Runtime helpers** — jump to 64-bit PowerShell or PowerShell 7+ when your sensor needs it.
 - 🔐 **Secret storage** — keep API tokens and credentials out of your script with DPAPI-encrypted [`Save-PrtgSecret`](Source/Public/Save-PrtgSecret.ps1) / [`Get-PrtgSecret`](Source/Public/Get-PrtgSecret.ps1).
+- 💾 **State between runs** - cache values and compute rates/deltas with [`Save-PrtgSensorState`](Source/Public/Save-PrtgSensorState.ps1) / [`Get-PrtgSensorState`](Source/Public/Get-PrtgSensorState.ps1), safe under overlapping scans.
+- 🔁 **Built-in retries and TLS** - `-RetryCount` re-runs flaky blocks, `-ForceModernTls` fixes 5.1's web request defaults.
+- 🩺 **Sensor doctor** - [`Invoke-PrtgSensorDoctor`](Source/Public/Invoke-PrtgSensorDoctor.ps1) finds the classic sensor-script mistakes before PRTG does; debug interactively with `-DryRun`.
 - 📖 **Full built-in help** — every command is documented; `Get-Help <command> -Full`.
 
 ## 📦 Install
@@ -109,8 +112,11 @@ Invoke-PrtgSensor {
 ```
 
 > [!TIP]
-> **Making web requests in your sensor?** On Windows PowerShell 5.1, enable TLS 1.2 first:
-> `[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12`
+> **Making web requests in your sensor?** Windows PowerShell 5.1 defaults can lack TLS 1.2,
+> which makes HTTPS calls fail against modern endpoints. Add `-ForceModernTls` and
+> `Invoke-PrtgSensor` enables TLS 1.2/1.3 for you before your block runs:
+> `Invoke-PrtgSensor -ForceModernTls { ... }`
+> See [22-force-modern-tls.ps1](Examples/22-force-modern-tls.ps1).
 
 > [!WARNING]
 > ⚠️ **Never write to the output stream in your sensor code.** PRTG reads the sensor result
@@ -220,6 +226,118 @@ Invoke-PrtgSensor {
 > `-AllowUnprotected` to store the secret **obfuscated, not encrypted** (a warning is printed;
 > never use it for real credentials).
 
+## 💾 State between runs
+
+Sensors often need yesterday's number to make sense of today's: rates from ever-growing
+counters, caching an expensive lookup, or averaging the last hour of samples.
+`Save-PrtgSensorState` appends a value (with a UTC timestamp) to a per-key history on
+disk, and `Get-PrtgSensorState` reads it back on the next run:
+
+```powershell
+Invoke-PrtgSensor {
+  $total = (Invoke-RestMethod -Uri $statsUrl).totalRequests
+
+  # Last run's counter, or $null on the very first run / when the data is too old
+  $previous = Get-PrtgSensorState -Key 'MySensor.Total' -MaxAge (New-TimeSpan -Minutes 15) -Latest
+
+  if ($null -ne $previous) {
+    New-PrtgChannel -Channel 'Delta' -Value ($total - $previous) | Add-PrtgChannel
+  }
+
+  Save-PrtgSensorState -Key 'MySensor.Total' -Value $total -MaxEntries 10
+}
+```
+
+Details worth knowing:
+
+- **Never throws for missing data** - the first run gets `-Default` (or `$null`), so no
+  special-casing is needed.
+- **Histories, not single values** - `Get-PrtgSensorState` returns `Value` + `Timestamp`
+  entries newest first; `-Latest` shortcuts to the newest bare value. `-MaxEntries` on
+  save and `Clear-PrtgSensorState -MaxAge` keep histories from growing forever.
+- **Safe under overlapping scans** - reads and writes are serialized with a file lock.
+  `-TimeoutSeconds` controls how long to wait for it, `-Force` bypasses it. A leftover
+  zero-byte `<Key>.clixml.lock` file is normal; remove it with
+  `Clear-PrtgSensorState -ClearLock` if it bothers you.
+- **Keys are machine-global** - prefix them with your sensor name (`'MySensor.Total'`)
+  to avoid collisions.
+- **Plain data on disk** (`%ProgramData%\PrtgSensorKit\State`) - values are stored
+  unencrypted. A `SecureString`/`PSCredential` inside a value does stay DPAPI-encrypted
+  (that is how `Export-Clixml` works on Windows), but unlike the secret cmdlets the state
+  cmdlets make no promises about protection: no checks, no ACL hardening, no guard off
+  Windows. For secrets, prefer `Save-PrtgSecret`.
+
+See [20-sensor-state-between-runs.ps1](Examples/20-sensor-state-between-runs.ps1) for a
+full rate-from-counter sensor.
+
+## 🔁 Retrying flaky data sources
+
+If your sensor talks to an endpoint that occasionally hiccups, let `Invoke-PrtgSensor`
+retry the block instead of alerting on the first transient failure. `-RetryCount N` re-runs
+a throwing block up to N additional times (total attempts = N + 1), with an optional
+`-RetryDelaySeconds` pause between attempts. Output state is cleared before every attempt,
+so a failed partial attempt never leaks channels into the result.
+
+```powershell
+Invoke-PrtgSensor -RetryCount 2 -RetryDelaySeconds 5 {
+  $health = Invoke-RestMethod -Uri 'https://api.example.com/health' -TimeoutSec 10
+  New-PrtgChannel -Channel 'Latency' -Value $health.latencyMs -Unit TimeResponse | Add-PrtgChannel
+  Set-PrtgMessage 'API healthy'
+}
+```
+
+Retries are visible in PRTG: on success after retries the message becomes
+`API healthy (1/2 retries attempted)`, and if every attempt fails the error text starts
+with `unsuccessful after 2 retries:`.
+
+> [!WARNING]
+> Keep `(RetryCount + 1) * (block runtime + delay)` below the PRTG sensor timeout,
+> otherwise PRTG kills the sensor before the retries finish.
+
+See [19-retries-transient-failures.ps1](Examples/19-retries-transient-failures.ps1).
+
+## 🧪 Debugging a sensor with -DryRun
+
+`-DryRun` runs the block exactly like a real run but returns the result as a PowerShell
+object instead of the PRTG JSON string, so you can inspect channels and message without
+reading JSON. Errors are rethrown with full details instead of being flattened into a PRTG
+error response.
+
+```powershell
+# In a normal console:
+$result = .\MySensor.ps1        # the script calls Invoke-PrtgSensor -DryRun { ... }
+$result.prtg.result | Format-Table
+$result.prtg.text
+```
+
+> [!WARNING]
+> Remove `-DryRun` before deploying: a deployed dry run does not emit valid PRTG JSON.
+
+See [18-dry-run-debugging.ps1](Examples/18-dry-run-debugging.ps1).
+
+## 🩺 Diagnosing a sensor
+
+`Invoke-PrtgSensorDoctor` analyzes a sensor script (it parses, never executes) and checks
+for the classic mistakes: `Restart-*` in the wrong place, manual output calls inside the
+`Invoke-PrtgSensor` block, a leftover `-DryRun`, web requests without TLS setup, output
+after the sensor response, and more. On Windows it also probes whether PrtgSensorKit and
+your imported modules are actually installed in the hosts the sensor runs in (32-bit
+PowerShell 5.1, 64-bit, pwsh).
+
+```powershell
+Invoke-PrtgSensorDoctor -ScriptPath 'C:\...\Custom Sensors\EXEXML\MySensor.ps1'
+```
+
+A colored summary is printed to the console, and every check comes back as an object
+(`CheckId`, `Severity`, `Message`, `Line`, `Recommendation`) for scripted use:
+
+```powershell
+$findings = Invoke-PrtgSensorDoctor -ScriptPath .\MySensor.ps1 -SkipEnvironmentChecks
+$findings | Where-Object Severity -eq 'Error'
+```
+
+See [21-sensor-doctor.ps1](Examples/21-sensor-doctor.ps1).
+
 ## ❓ Getting help on any command
 
 Every command ships with full PowerShell comment-based help.
@@ -249,8 +367,12 @@ Get-Help New-PrtgChannel -Parameter Unit   # help for one parameter
 | [`Get-PrtgMessage`](Source/Public/Get-PrtgMessage.ps1) | Get the current sensor message |
 | [`Save-PrtgSecret`](Source/Public/Save-PrtgSecret.ps1) | Store an API token or credential, DPAPI-encrypted |
 | [`Get-PrtgSecret`](Source/Public/Get-PrtgSecret.ps1) | Read a stored secret in a sensor |
+| [`Save-PrtgSensorState`](Source/Public/Save-PrtgSensorState.ps1) | Persist a value between sensor runs |
+| [`Get-PrtgSensorState`](Source/Public/Get-PrtgSensorState.ps1) | Read state saved by a previous run |
+| [`Clear-PrtgSensorState`](Source/Public/Clear-PrtgSensorState.ps1) | Delete or prune stored sensor state |
 | [`Restart-As64BitPowershell`](Source/Public/Restart-As64BitPowershell.ps1) | Re-launch the sensor in 64-bit PowerShell |
 | [`Restart-InPwsh`](Source/Public/Restart-InPwsh.ps1) | Re-launch the sensor in PowerShell 7+ |
+| [`Invoke-PrtgSensorDoctor`](Source/Public/Invoke-PrtgSensorDoctor.ps1) | Diagnose common issues in a sensor script |
 
 ### Lower-level Commands (advanced)
 
@@ -313,6 +435,7 @@ See [04-manual-output-and-errors.ps1](Examples/04-manual-output-and-errors.ps1) 
 ./tasks.ps1 lint                       # PSScriptAnalyzer style + 5.1/7.0 compatibility checks
 ./tasks.ps1 build                      # builds to ./Dist, then runs the Pester suite
 ./tasks.ps1 test                       # runs the Pester suite against the built module
+./tasks.ps1 prepare_release 1.1.0      # gates + changelog check, stamps version, verified rebuild
 ```
 
 ## 📄 License

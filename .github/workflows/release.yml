@@ -1,6 +1,7 @@
 name: Release
 
-# Tag a commit as vX.Y.Z (matching ModuleVersion in the manifest) and push the tag to publish.
+# Tag a commit ON MASTER as vX.Y.Z (matching ModuleVersion in the manifest) and push the
+# tag to publish. Tags on any other branch are rejected by the guard job below.
 # Requires a repository secret PSGALLERY_API_KEY (a PowerShell Gallery API key).
 on:
   push:
@@ -11,16 +12,45 @@ permissions:
   contents: write      # needed to create the GitHub release
 
 jobs:
-  # Run the full CI matrix (build + lint + test on WinPS 5.1 / pwsh across OSes) first.
-  # The release job below only runs if this succeeds.
-  ci:
-    uses: ./.github/workflows/ci.yml
-
-  release:
-    needs: ci
+  # Tag push events carry no branch context and 'branches:' filters do not apply to
+  # them, so enforce it here: the tagged commit must be an ancestor of master. Skipped
+  # for workflow_dispatch dry runs, which may come from any branch.
+  guard:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          fetch-depth: 0
+      - name: Ensure the tagged commit is on master
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          git fetch origin master --quiet
+          if git merge-base --is-ancestor "$GITHUB_SHA" origin/master; then
+            echo "Commit $GITHUB_SHA is on master; release allowed."
+          else
+            echo "::error::Tag $GITHUB_REF_NAME points to a commit that is not on master. Releases are tagged on master only."
+            exit 1
+          fi
+
+  # Run the full CI matrix (build + lint + test on WinPS 5.1 / pwsh across OSes) next.
+  # The release job below only runs if both succeed.
+  ci:
+    needs: guard
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    needs: [guard, ci]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Same cache as the CI matrix (see ci.yml): skips Install-Module on a hit.
+      - name: Cache PowerShell modules
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/powershell/Modules
+          key: psmodules-ubuntu-latest-pwsh-${{ hashFiles('Tools/install_dev_requirements.ps1') }}
 
       - name: Install dev requirements
         shell: pwsh
@@ -51,6 +81,19 @@ jobs:
         shell: pwsh
         run: Compress-Archive -Path '${{ steps.mod.outputs.dir }}/*' -DestinationPath "PrtgSensorKit-${{ steps.mod.outputs.version }}.zip" -Force
 
+      # The GitHub release body is the version's own section from CHANGELOG.md
+      # (prepare_release guarantees it exists and has content). Extraction shares
+      # Tools/get_changelog_section.ps1 with prepare_release so the format cannot drift.
+      - name: Extract release notes from CHANGELOG.md
+        if: startsWith(github.ref, 'refs/tags/')
+        shell: pwsh
+        run: |
+          $version = '${{ steps.mod.outputs.version }}'
+          $notes = ([string](./Tools/get_changelog_section.ps1 -Heading $version)).Trim()
+          if (-not $notes) { throw "CHANGELOG.md has no content under '## [$version]' to use as release notes." }
+          Set-Content -Path release-notes.md -Value $notes
+          Write-Host "Release notes extracted from CHANGELOG.md ($($notes.Length) chars)."
+
       - name: Publish to PowerShell Gallery
         if: startsWith(github.ref, 'refs/tags/')
         shell: pwsh
@@ -65,4 +108,4 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: PrtgSensorKit-${{ steps.mod.outputs.version }}.zip
-          generate_release_notes: true
+          body_path: release-notes.md
