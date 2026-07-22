@@ -108,4 +108,4 @@ jobs:
         shell: pwsh
         env:
           GITHUB_TOKEN: ${{ github.token }}
-        run: gh release create "$env:GITHUB_REF_NAME" "PrtgSensorKit-${{ steps.mod.outputs.version }}.zip" --notes-file release-notes.md
+        run: gh release create "$env:GITHUB_REF_NAME" "PrtgSensorKit-${{ steps.mod.outputs.version }}.zip" --title "$env:GITHUB_REF_NAME" --notes-file release-notes.md
