@@ -14,3 +14,13 @@ function Get-BuiltPrtgManifest {
 function Import-BuiltPrtgModule {
   Import-Module (Get-BuiltPrtgManifest) -Force
 }
+
+# Opens the exclusive lock handle the way the module does, to simulate a concurrent run.
+# Shared by the state and cache test files so both always test the same lock semantics.
+function Get-TestLockHandle([string]$LockFile) {
+  [System.IO.FileStream]::new(
+    $LockFile,
+    [System.IO.FileMode]::OpenOrCreate,
+    [System.IO.FileAccess]::ReadWrite,
+    [System.IO.FileShare]::None)
+}
