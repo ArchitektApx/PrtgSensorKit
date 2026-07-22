@@ -11,6 +11,8 @@ jobs:
   test:
     name: test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -29,12 +31,12 @@ jobs:
           - { os: macos-latest,   host: pwsh, name: 'macos / pwsh 7',
               modulePath: '~/.local/share/powershell/Modules' }
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # On a cache hit the install script finds the modules via Get-Module -ListAvailable
       # and skips Install-Module entirely.
       - name: Cache PowerShell modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ matrix.modulePath }}
           key: psmodules-${{ matrix.os }}-${{ matrix.host }}-${{ hashFiles('Tools/install_dev_requirements.ps1') }}
