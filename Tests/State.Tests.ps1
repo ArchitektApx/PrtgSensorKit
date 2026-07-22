@@ -1,15 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
   Import-BuiltPrtgModule
-
-  # Opens the exclusive lock handle the way the module does, to simulate a concurrent run.
-  function Get-TestLockHandle([string]$LockFile) {
-    [System.IO.FileStream]::new(
-      $LockFile,
-      [System.IO.FileMode]::OpenOrCreate,
-      [System.IO.FileAccess]::ReadWrite,
-      [System.IO.FileShare]::None)
-  }
 }
 
 Describe 'Save/Get-PrtgSensorState round-trip' {
@@ -252,5 +243,43 @@ Describe 'Sensor state locking' {
     $handle.Dispose()   # simulates the holding process dying: the OS releases the handle
     Save-PrtgSensorState -Key 'shared' -Value 'recovered' -Path $dir -TimeoutSeconds 0
     Get-PrtgSensorState -Key 'shared' -Path $dir -Latest | Should -Be 'recovered'
+  }
+}
+
+Describe 'Sensor state coverage gaps' {
+  It 'round-trips through the DEFAULT state folder when -Path is omitted' {
+    # Every other test passes -Path; this one deliberately exercises the
+    # ProgramData/temp default resolution. Cleans up after itself.
+    $key = "CoverageProbe-$(Get-Random)"
+    try {
+      Save-PrtgSensorState -Key $key -Value 'default-folder'
+      Get-PrtgSensorState -Key $key -Latest | Should -Be 'default-folder'
+    } finally {
+      Clear-PrtgSensorState -Key $key -ClearLock
+    }
+  }
+
+  It 'warns and deletes when Clear-PrtgSensorState -MaxAge meets a corrupt state file' {
+    $dir = Join-Path $TestDrive "state-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $dir)
+    $file = Join-Path $dir 'corrupt.clixml'
+    Set-Content -LiteralPath $file -Value 'this is not clixml'
+    Clear-PrtgSensorState -Key 'corrupt' -Path $dir -MaxAge (New-TimeSpan -Minutes 5) -WarningVariable warnings 3>$null
+    @($warnings) -join ' ' | Should -BeLike '*unreadable*'
+    Test-Path -LiteralPath $file | Should -BeFalse
+  }
+
+  It 'fails fast with the access-denied wording when the lock folder is not writable' -Skip:($PSVersionTable.PSEdition -eq 'Desktop' -or [bool]$IsWindows) {
+    # Unix only: a read-only folder yields UnauthorizedAccessException on lock creation,
+    # which must NOT be retried until the timeout (ACL denial is not transient).
+    $dir = Join-Path $TestDrive "readonly-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $dir)
+    chmod 555 $dir
+    try {
+      { Save-PrtgSensorState -Key 'denied' -Value 1 -Path $dir -TimeoutSeconds 30 } |
+        Should -Throw '*Access denied*'
+    } finally {
+      chmod 755 $dir
+    }
   }
 }
