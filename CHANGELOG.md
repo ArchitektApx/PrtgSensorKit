@@ -5,6 +5,49 @@ All notable changes to PrtgSensorKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-07-22
+
+### Added
+
+- `Write-PrtgLog`: safe, timestamped file logging for sensor debugging. One log file per
+  sensor invocation (`<scriptname>_<timestamp>_<PID>.log`), so a failing run is one
+  self-contained file and concurrent runs never interleave. Defaults to
+  `%ProgramData%\PrtgSensorKit\Logs\<scriptname>\`; old run files are pruned
+  automatically (newest 30 kept). Never throws, never touches stdout - logging can never
+  turn a green sensor red.
+- `Invoke-PrtgSensor -EnableLogging` (with optional `-LogPath` and `-MaxLogs`): opt-in
+  lifecycle logging via `Write-PrtgLog` - sensor start, each retry, a success summary,
+  and on failure the full error details (exception type, message, script line, stack
+  trace) that PRTG's one-line error text flattens away. `-LogPath` and `-MaxLogs`
+  require the switch; a relative `-LogPath` resolves against the script's folder.
+  ([Examples/23](Examples/23-file-logging.ps1))
+- `Use-PrtgCachedResult`: share one expensive call (REST response, SQL query, WMI sweep)
+  across all sensors on a machine. Memoizes the script block's result with a TTL
+  (`-MaxAge`), holding the state lock across check + fetch + write so concurrent sensors
+  cannot stampede the source: exactly one fetch per expiry, guaranteed. Cache entries
+  are ordinary sensor state (`Get-PrtgSensorState` inspects them,.
+  `Clear-PrtgSensorState` clears them).
+  ([Examples/24](Examples/24-shared-collection-cache.ps1))
+- Sensor doctor: three new script checks. PSK0011 warns when a script contains
+  non-ASCII bytes without a BOM (Windows PowerShell 5.1 reads BOM-less files as ANSI
+  and silently mangles umlauts under PRTG). PSK0012 reminds that channel limit values
+  are snapshotted when the sensor is first created. PSK0013 reminds that DPAPI secrets
+  only decrypt under the account that saved them when `Get-PrtgSecret` is used.
+- Integration sensors for the new features: `working/17` (lifecycle logging to the
+  default folder under the probe account), `working/18` (shared cache across multiple
+  deployed sensors), and `malformed/19` (BOM-less non-ASCII fixture the Doctor flags as
+  PSK0011 and PRTG displays as mojibake).
+
+### Changed
+
+- Documentation restructured: the README now covers install, quickstart, and navigation;
+  per-topic detail moved to `Docs/` (installation, channels, runtime hosts, secrets,
+  state, shared cache, logging, resilience, debugging, low-level output). The doctor's
+  PSK0013 recommendation points at `Docs/secrets.md` accordingly.
+- README: the debug tip now shows `Write-PrtgLog` instead of hand-rolled `Add-Content`;
+  the parameterized sensor example now reminds to quote PRTG placeholders
+  (`-DeviceName '%device'`).
+
 ## [1.1.0] - 2026-07-21
 
 All changes are strictly additive: no existing cmdlet, parameter, default, or output
@@ -72,6 +115,7 @@ shape changed. Sensors written against 1.0.0 behave identically after upgrading.
 - Full comment-based help on every command, 17 runnable examples, Pester suite run
   against the built module on Windows PowerShell 5.1 and PowerShell 7.
 
-[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.1.0...HEAD
+[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.2.0...HEAD
+[1.2.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ArchitektApx/PrtgSensorKit/releases/tag/v1.0.0
