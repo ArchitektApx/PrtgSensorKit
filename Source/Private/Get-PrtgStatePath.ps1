@@ -1,3 +1,24 @@
+function Get-PrtgDataPath {
+  <#
+  .SYNOPSIS
+    Resolves the base folder for an on-disk store (State, Logs).
+  .DESCRIPTION
+    Single definition of the platform fallback shared by the state and log stores:
+    '$env:ProgramData\PrtgSensorKit\<Store>' on Windows, a temp folder elsewhere. The
+    secret store keeps its own resolution on purpose - its non-Windows behavior is gated
+    behind -AllowUnprotected rather than falling back silently.
+  #>
+  [CmdletBinding()]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Store
+  )
+
+  if (Test-PrtgWindows) { Join-Path $env:ProgramData "PrtgSensorKit\$Store" }
+  else { Join-Path ([System.IO.Path]::GetTempPath()) "PrtgSensorKit/$Store" }
+}
+
 function Get-PrtgStatePath {
   <#
   .SYNOPSIS
@@ -16,8 +37,7 @@ function Get-PrtgStatePath {
   )
 
   if ([string]::IsNullOrEmpty($Path)) {
-    $Path = if (Test-PrtgWindows) { Join-Path $env:ProgramData 'PrtgSensorKit\State' }
-            else { Join-Path ([System.IO.Path]::GetTempPath()) 'PrtgSensorKit/State' }
+    $Path = Get-PrtgDataPath -Store 'State'
   }
 
   if (-not (Test-Path -LiteralPath $Path)) {
