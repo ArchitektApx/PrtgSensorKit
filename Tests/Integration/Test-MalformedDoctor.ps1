@@ -41,6 +41,7 @@ $expected = [ordered]@{
   '14-restart-misplaced-import' = @{ CheckId = 'PSK0004'; Severity = 'Error' }
   '15-web-without-tls'          = @{ CheckId = 'PSK0009'; Severity = 'Info' }
   '16-syntax-error'             = @{ CheckId = 'PSK0001'; Severity = 'Error' }
+  '19-encoding-no-bom'          = @{ CheckId = 'PSK0011'; Severity = 'Warning' }
 }
 
 $pass = 0

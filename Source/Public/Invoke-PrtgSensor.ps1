@@ -26,6 +26,8 @@ function Invoke-PrtgSensor {
       Windows PowerShell 5.1 often needs for web requests.
     - -DryRun returns the sensor result as an inspectable object instead of JSON, for
       debugging in a normal console.
+    - -EnableLogging writes the sensor lifecycle (start, retries, success summary, full
+      error details) to a per-run log file via Write-PrtgLog, without touching stdout.
 
   .PARAMETER ScriptBlock
     The sensor logic. Add one or more channels and set the message here; the block may contain
@@ -52,6 +54,28 @@ function Invoke-PrtgSensor {
   .PARAMETER RetryDelaySeconds
     Seconds to wait between attempts (not before the first, not after the last). Default 0.
     Only meaningful together with -RetryCount.
+
+  .PARAMETER EnableLogging
+    Opt in to lifecycle logging: the wrapper logs sensor start, each retry, a success
+    summary (channel count, message, duration), and on failure the FULL error details
+    (exception type, message, script line, stack trace) that PRTG's one-line error text
+    flattens away. Entries go to this run's log file (see Write-PrtgLog) in the default
+    log folder '$env:ProgramData\PrtgSensorKit\Logs\<scriptname>\', or in -LogPath. The
+    directory also becomes the default for Write-PrtgLog calls inside the block for the
+    duration of the call. Logging can never affect the sensor result; file errors are
+    swallowed. Without this switch, behavior is identical to previous versions and the
+    wrapper creates no files.
+
+  .PARAMETER LogPath
+    Directory for this sensor's log files (requires -EnableLogging). A relative path
+    resolves against the sensor script's own folder, not the process working directory -
+    PRTG starts sensors with an unhelpful CWD. The directory is created if missing. If
+    earlier Write-PrtgLog calls already wrote this run's file to a different folder, a
+    new run file is started in this one.
+
+  .PARAMETER MaxLogs
+    How many run log files to keep in the log directory (requires -EnableLogging).
+    Default 30; older files are deleted when a new run file is created. 0 keeps all.
 
   .PARAMETER ForceModernTls
     Sets [Net.ServicePointManager]::SecurityProtocol to TLS 1.2 (plus TLS 1.3 when the
@@ -95,6 +119,16 @@ function Invoke-PrtgSensor {
     apart, before reporting an error to PRTG.
 
   .EXAMPLE
+    Invoke-PrtgSensor -EnableLogging {
+      Write-PrtgLog "querying the API"
+      New-PrtgChannel -Channel 'Items' -Value (Invoke-RestMethod -Uri $url).count | Add-PrtgChannel
+    }
+
+    Zero-config debugging for a deployed sensor: lifecycle entries and the Write-PrtgLog
+    line land in '$env:ProgramData\PrtgSensorKit\Logs\<scriptname>\'. Use
+    -LogPath "$PSScriptRoot\Logs" to keep the logs next to the script instead.
+
+  .EXAMPLE
     $result = Invoke-PrtgSensor -DryRun {
       New-PrtgChannel -Channel 'A' -Value 1 | Add-PrtgChannel
       Set-PrtgMessage 'ok'
@@ -120,13 +154,27 @@ function Invoke-PrtgSensor {
   .LINK
     Write-PrtgError
   #>
-  [CmdletBinding()]
+  [CmdletBinding(DefaultParameterSetName = 'Default')]
   param(
     [Parameter(Mandatory = $true, Position = 0)]
     [scriptblock]$ScriptBlock,
 
     [Parameter(Mandatory = $false)]
     [switch]$DryRun,
+
+    # The 'Logging' set groups these three in Get-Help. EnableLogging is deliberately NOT
+    # mandatory in the set: a mandatory switch would make an interactive console PROMPT
+    # for it when only -LogPath/-MaxLogs are given. The guard below throws instead.
+    [Parameter(Mandatory = $false, ParameterSetName = 'Logging')]
+    [switch]$EnableLogging,
+
+    [Parameter(Mandatory = $false, ParameterSetName = 'Logging')]
+    [ValidateNotNullOrEmpty()]
+    [string]$LogPath,
+
+    [Parameter(Mandatory = $false, ParameterSetName = 'Logging')]
+    [ValidateRange(0, [int]::MaxValue)]
+    [int]$MaxLogs,
 
     [Parameter(Mandatory = $false)]
     [ValidateRange(0, 100)]
@@ -142,57 +190,125 @@ function Invoke-PrtgSensor {
 
   $ErrorActionPreference = 'Stop'
 
+  # -LogPath and -MaxLogs only configure logging, so they require the -EnableLogging
+  # opt-in. Enforced here instead of via parameter sets: a mandatory switch would make an
+  # interactive console PROMPT for -EnableLogging instead of failing with a clear error.
+  if (-not $EnableLogging) {
+    foreach ($parameterName in 'LogPath', 'MaxLogs') {
+      if ($PSBoundParameters.ContainsKey($parameterName)) {
+        throw "-$parameterName requires -EnableLogging; add -EnableLogging to the Invoke-PrtgSensor call."
+      }
+    }
+  }
+
   if ($ForceModernTls) { Set-PrtgModernTls }
 
-  # Attempt loop: $retriesUsed counts FAILED attempts so far. The block runs at most
-  # RetryCount + 1 times; output state is cleared before every attempt so a failed partial
-  # attempt cannot leak channels or a message into the next one.
-  $retriesUsed = 0
-  $lastError = $null
+  # -EnableLogging: point the session log directory and retention at this call's settings
+  # for its duration (restored in the finally below). The run file itself is created
+  # lazily by the first Write-PrtgLog call - the lifecycle start line right below.
+  $logRestore = $null
+  if ($EnableLogging) {
+    $logRestore = @{ Directory = $script:PrtgLogDirectory; MaxLogs = $script:PrtgLogMaxLogs }
+    if ($PSBoundParameters.ContainsKey('LogPath')) {
+      if (-not [System.IO.Path]::IsPathRooted($LogPath)) {
+        # Relative paths anchor to the sensor script, not the CWD: PRTG starts sensors
+        # with an unhelpful working directory.
+        $callerScript = Get-PrtgLogCallerScriptPath
+        $baseDirectory = if ($callerScript) { Split-Path -Parent $callerScript } else { (Get-Location).Path }
+        $LogPath = Join-Path $baseDirectory $LogPath
+      }
+      $script:PrtgLogDirectory = $LogPath
+      # An earlier Write-PrtgLog call may have pinned this process's run file to another
+      # folder; honor the explicit -LogPath by starting a new run file there.
+      if ($script:PrtgLogFile -and (Split-Path -Parent $script:PrtgLogFile) -ne $LogPath) {
+        $script:PrtgLogFile = $null
+      }
+    }
+    if ($PSBoundParameters.ContainsKey('MaxLogs')) { $script:PrtgLogMaxLogs = $MaxLogs }
+  }
 
-  while ($true) {
-    Clear-PrtgOutput
-    try {
-      # Merge the information stream into success, then discard both so stray output from the
-      # user's code never reaches stdout. Terminating errors still propagate to the catch below.
-      & $ScriptBlock 6>&1 | Out-Null
-      $lastError = $null
-      break
-    } catch {
-      $lastError = $_
-      if ($retriesUsed -ge $RetryCount) { break }
-      $retriesUsed++
-      if ($RetryDelaySeconds -gt 0) { Start-Sleep -Seconds $RetryDelaySeconds }
+  try {
+    if ($EnableLogging) {
+      $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+      $bitness = if ([Environment]::Is64BitProcess) { '64-bit' } else { '32-bit' }
+      Write-PrtgLog "sensor start (attempt 1/$($RetryCount + 1)): script '$(Get-PrtgLogScriptName)', host $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion) $bitness"
+    }
+
+    # Attempt loop: $retriesUsed counts FAILED attempts so far. The block runs at most
+    # RetryCount + 1 times; output state is cleared before every attempt so a failed partial
+    # attempt cannot leak channels or a message into the next one.
+    $retriesUsed = 0
+    $lastError = $null
+
+    while ($true) {
+      Clear-PrtgOutput
+      try {
+        # Merge the information stream into success, then discard both so stray output from the
+        # user's code never reaches stdout. Terminating errors still propagate to the catch below.
+        & $ScriptBlock 6>&1 | Out-Null
+        $lastError = $null
+        break
+      } catch {
+        $lastError = $_
+        if ($retriesUsed -ge $RetryCount) { break }
+        $retriesUsed++
+        if ($EnableLogging) {
+          $oneLine = ("$($lastError.Exception.Message)" -replace '\s+', ' ').Trim()
+          Write-PrtgLog -Level Warning "attempt $retriesUsed failed: $oneLine; retrying in $($RetryDelaySeconds)s"
+        }
+        if ($RetryDelaySeconds -gt 0) { Start-Sleep -Seconds $RetryDelaySeconds }
+      }
+    }
+
+    if ($null -ne $lastError) {
+      if ($EnableLogging) {
+        # The payoff entry of the logging feature: everything PRTG's one-line error text
+        # flattens away, across multiple lines in a single log entry.
+        $details = @(
+          "sensor failed: $($lastError.Exception.GetType().FullName)"
+          "message: $($lastError.Exception.Message)"
+          "line $($lastError.InvocationInfo.ScriptLineNumber): $("$($lastError.InvocationInfo.Line)".Trim())"
+          'stack trace:'
+          "$($lastError.ScriptStackTrace)"
+        ) -join [Environment]::NewLine
+        Write-PrtgLog -Level Error $details
+      }
+      # All attempts failed. A dry run surfaces the real error for debugging; a real run
+      # emits the PRTG error response, prefixed with the retry summary when retries were used.
+      if ($DryRun) { throw $lastError }
+      if ($RetryCount -gt 0) {
+        Write-PrtgError -ErrorString "unsuccessful after $RetryCount retries: $(Format-PrtgErrorText -ErrorObject $lastError)"
+      } else {
+        $lastError | Write-PrtgError
+      }
+      return
+    }
+
+    if ($retriesUsed -gt 0) {
+      $suffix = "($retriesUsed/$RetryCount retries attempted)"
+      $message = Get-PrtgMessage
+      if ([string]::IsNullOrEmpty($message)) {
+        Set-PrtgMessage $suffix
+      } else {
+        Set-PrtgMessage "$message $suffix"
+      }
+    }
+
+    if ($EnableLogging) {
+      Write-PrtgLog "sensor ok: $($script:OutputObject.prtg.result.Count) channels, message '$(Get-PrtgMessage)', $($stopwatch.ElapsedMilliseconds) ms"
+    }
+
+    if ($DryRun) {
+      # Round-trip through JSON so the caller inspects exactly what PRTG would receive and
+      # mutating the returned object cannot touch the module-scope output state.
+      return ($script:OutputObject | ConvertTo-Json -Depth 10 | ConvertFrom-Json)
+    }
+
+    Write-PrtgOutput
+  } finally {
+    if ($null -ne $logRestore) {
+      $script:PrtgLogDirectory = $logRestore.Directory
+      $script:PrtgLogMaxLogs = $logRestore.MaxLogs
     }
   }
-
-  if ($null -ne $lastError) {
-    # All attempts failed. A dry run surfaces the real error for debugging; a real run
-    # emits the PRTG error response, prefixed with the retry summary when retries were used.
-    if ($DryRun) { throw $lastError }
-    if ($RetryCount -gt 0) {
-      Write-PrtgError -ErrorString "unsuccessful after $RetryCount retries: $(Format-PrtgErrorText -ErrorObject $lastError)"
-    } else {
-      $lastError | Write-PrtgError
-    }
-    return
-  }
-
-  if ($retriesUsed -gt 0) {
-    $suffix = "($retriesUsed/$RetryCount retries attempted)"
-    $message = Get-PrtgMessage
-    if ([string]::IsNullOrEmpty($message)) {
-      Set-PrtgMessage $suffix
-    } else {
-      Set-PrtgMessage "$message $suffix"
-    }
-  }
-
-  if ($DryRun) {
-    # Round-trip through JSON so the caller inspects exactly what PRTG would receive and
-    # mutating the returned object cannot touch the module-scope output state.
-    return ($script:OutputObject | ConvertTo-Json -Depth 10 | ConvertFrom-Json)
-  }
-
-  Write-PrtgOutput
 }

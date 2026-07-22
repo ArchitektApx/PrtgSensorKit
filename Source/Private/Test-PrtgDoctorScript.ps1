@@ -23,7 +23,7 @@ function New-PrtgDoctorFinding {
 function Test-PrtgDoctorScript {
   <#
   .SYNOPSIS
-    Runs the AST-based Doctor checks (PSK0001-PSK0010) against a parsed sensor script.
+    Runs the AST-based Doctor checks (PSK0001-PSK0013) against a parsed sensor script.
   .DESCRIPTION
     Pure static analysis: works everywhere, never executes the target script. Each check
     emits exactly one finding (Pass or its issue severity); position-sensitive checks may
@@ -48,6 +48,32 @@ function Test-PrtgDoctorScript {
     }
   } else {
     $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0001' -Severity 'Pass' -Message 'Script parses without syntax errors.'))
+  }
+
+  # --- PSK0011: source encoding (raw bytes, no AST needed) ------------------------------
+  # Windows PowerShell 5.1 parses BOM-less .ps1 files as ANSI (Windows-1252): a BOM-less
+  # UTF-8 file with umlauts or degree signs is silently misread at parse time and the
+  # mojibake lands in channel names. pwsh defaults BOM-less files to UTF-8, so the script
+  # looks correct when tested there and breaks only under PRTG's 5.1 host. This runs even
+  # when the script fails to parse - a wrong encoding can BE the parse failure.
+  $bytes = [System.IO.File]::ReadAllBytes($Parsed.ScriptPath)
+  # UTF-8, UTF-16 LE/BE, and UTF-32 BE BOMs; the FF FE prefix also covers UTF-32 LE.
+  $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) -or
+            ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFF -and $bytes[1] -eq 0xFE) -or
+            ($bytes.Length -ge 2 -and $bytes[0] -eq 0xFE -and $bytes[1] -eq 0xFF) -or
+            ($bytes.Length -ge 4 -and $bytes[0] -eq 0x00 -and $bytes[1] -eq 0x00 -and $bytes[2] -eq 0xFE -and $bytes[3] -eq 0xFF)
+  $hasNonAscii = $false
+  if (-not $hasBom) {
+    foreach ($byte in $bytes) {
+      if ($byte -gt 0x7F) { $hasNonAscii = $true; break }
+    }
+  }
+  if ($hasNonAscii) {
+    $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0011' -Severity 'Warning' `
+      -Message 'The script contains non-ASCII characters but has no BOM. Windows PowerShell 5.1 reads BOM-less files as ANSI, so string literals with umlauts, accents, or symbols are silently misread under PRTG even though the script looks correct in pwsh.' `
+      -Recommendation 'Save the file as UTF-8 with BOM.'))
+  } else {
+    $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0011' -Severity 'Pass' -Message 'Script encoding is safe for Windows PowerShell 5.1 (all-ASCII or BOM present).'))
   }
 
   if ($null -eq $Parsed.Ast) { return $findings.ToArray() }
@@ -319,6 +345,33 @@ function Test-PrtgDoctorScript {
       -Recommendation 'Build the splat hashtable as a literal in the script, or pass -DryRun directly, so the Doctor can check it.'))
   } else {
     $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0010' -Severity 'Pass' -Message 'No -DryRun left in the script.'))
+  }
+
+  # --- PSK0012: channel limits are a creation-time snapshot ------------------------------
+  $channelCalls = & $getCallsByName @('New-PrtgChannel')
+  $limitCalls = @($channelCalls | Where-Object {
+    @($_.CommandElements | Where-Object {
+      $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -like 'Limit*'
+    }).Count -gt 0
+  })
+  if ($limitCalls.Count -gt 0) {
+    $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0012' -Severity 'Info' `
+      -Message 'New-PrtgChannel is called with Limit* parameters. PRTG copies limit values into the channel settings ONLY when the sensor is first created; editing them in the script later has no effect on an existing sensor.' `
+      -Line $limitCalls[0].Extent.StartLineNumber `
+      -Recommendation 'To change limits on a deployed sensor, edit the channel settings in the PRTG UI or delete and recreate the sensor.'))
+  } else {
+    $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0012' -Severity 'Pass' -Message 'No channel limit parameters used.'))
+  }
+
+  # --- PSK0013: DPAPI secrets are bound to the sensor account -----------------------------
+  $secretCalls = & $getCallsByName @('Get-PrtgSecret')
+  if ($secretCalls.Count -gt 0) {
+    $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0013' -Severity 'Info' `
+      -Message 'Get-PrtgSecret is used. DPAPI secrets only decrypt under the Windows account that saved them, and PRTG runs the sensor as the probe service account (usually Local System), not your console user.' `
+      -Line $secretCalls[0].Extent.StartLineNumber `
+      -Recommendation "Run Save-PrtgSecret under the same account the sensor runs as, and test the script under that account before deploying. See Docs/secrets.md ('Credentials and secrets') in the PrtgSensorKit repository."))
+  } else {
+    $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0013' -Severity 'Pass' -Message 'No Get-PrtgSecret usage; secret account binding not applicable.'))
   }
 
   $findings.ToArray()

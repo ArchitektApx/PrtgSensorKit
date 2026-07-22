@@ -18,7 +18,7 @@ jobs:
   guard:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         if: startsWith(github.ref, 'refs/tags/')
         with:
           fetch-depth: 0
@@ -43,11 +43,11 @@ jobs:
     needs: [guard, ci]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # Same cache as the CI matrix (see ci.yml): skips Install-Module on a hit.
       - name: Cache PowerShell modules
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/.local/share/powershell/Modules
           key: psmodules-ubuntu-latest-pwsh-${{ hashFiles('Tools/install_dev_requirements.ps1') }}
@@ -105,7 +105,7 @@ jobs:
 
       - name: Create GitHub release
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: PrtgSensorKit-${{ steps.mod.outputs.version }}.zip
-          body_path: release-notes.md
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: gh release create "$env:GITHUB_REF_NAME" "PrtgSensorKit-${{ steps.mod.outputs.version }}.zip" --notes-file release-notes.md

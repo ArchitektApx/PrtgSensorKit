@@ -113,9 +113,12 @@ function Get-PrtgSensorState {
   if ($Latest) {
     # Single pass instead of sorting the whole history for one value; this runs on every
     # scan interval and the history can be large when -MaxEntries is not used on save.
+    # -ge, not -gt: UtcNow has ~15 ms resolution on .NET Framework, so two quick saves
+    # can carry IDENTICAL timestamps. File order is append order, so on a tie the
+    # later-appended (newer) entry must win.
     $newest = $entries[0]
     foreach ($entry in $entries) {
-      if ($entry.Timestamp.ToUniversalTime() -gt $newest.Timestamp.ToUniversalTime()) { $newest = $entry }
+      if ($entry.Timestamp.ToUniversalTime() -ge $newest.Timestamp.ToUniversalTime()) { $newest = $entry }
     }
     return $newest.Value
   }

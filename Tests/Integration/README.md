@@ -19,15 +19,15 @@ Three categories:
 
 PRTG only lists scripts that sit directly in
 `C:\Program Files (x86)\PRTG Network Monitor\Custom Sensors\EXEXML\`, not in nested
-folders. `.deployToTestVM.sh` therefore flattens the category subfolders into the EXEXML
-root, prefixing each file with its category, so `working/01-static-single-channel.ps1`
-becomes `working_01-static-single-channel.ps1`, and so on for `failing_*` and
-`malformed_*`. The paths in the matrix below are the repo layout; on the probe look for
-the prefixed names.
+folders. So when deploying, flatten the category subfolders into the EXEXML root and
+prefix each file with its category: `working/01-static-single-channel.ps1` becomes
+`working_01-static-single-channel.ps1`, and so on for `failing_*` and `malformed_*`.
+The paths in the matrix below are the repo layout; on the probe look for the prefixed
+names.
 
-To deploy by hand instead, copy a script into the EXEXML folder (renamed with its
-category prefix) and add an "EXE/Script Advanced" sensor pointing at it. Some sensors take
-a `Parameters` field (noted below). PrtgSensorKit must be installed for all users first
+Copy each script into the EXEXML folder (renamed with its category prefix) and add an
+"EXE/Script Advanced" sensor pointing at it. Some sensors take a `Parameters` field
+(noted below). PrtgSensorKit must be installed for all users first
 (`Install-Module PrtgSensorKit -Scope AllUsers` from Windows PowerShell).
 
 `Test-MalformedDoctor.ps1` is deployed alongside the sensors (it is a helper, not a
@@ -63,6 +63,9 @@ Get-ChildItem .\Tests\Integration -Recurse -Filter *.ps1 |
 | malformed/14-restart-misplaced-import.ps1 | malformed | import fails in the wrong host before relaunch | PSK0004 Error |
 | malformed/15-web-without-tls.ps1 | malformed | Down on 5.1 (TLS handshake fails) against a modern endpoint | PSK0009 Info |
 | malformed/16-syntax-error.ps1 | malformed | sensor fails to run (parse error) | PSK0001 Error |
+| working/17-logging-lifecycle.ps1 | working | Up; each scan adds one run log file under `%ProgramData%\PrtgSensorKit\Logs\` | all Pass |
+| working/18-cached-result-shared.ps1 | working | Up; deploy 2+ sensors: all show the SAME `Collection Age` sawtooth | all Pass |
+| malformed/19-encoding-no-bom.ps1 | malformed | Up, but channel name/message show mojibake under 5.1 (no parse error!) | PSK0011 Warning |
 
 Notes:
 
@@ -74,3 +77,14 @@ Notes:
 - 14 must be run in a host where `SqlServer` (or the substituted module) is NOT
   available so the pre-restart import actually fails; adjust the module name to one
   missing on your probe.
+- 17 writes run log files to `%ProgramData%\PrtgSensorKit\Logs\<scriptname>\` and
+  validates that the default log folder is writable under the probe account (Local
+  System). Check the newest file for the start / custom / `sensor ok` lines and that no
+  more than 30 files accumulate.
+- 18 must be deployed as at least TWO sensors (same script) to demonstrate the shared
+  cache: identical `Collection Age` on all of them, one 2-second collection per
+  interval machine-wide. Writes to `%ProgramData%\PrtgSensorKit\State`.
+- 19 is a byte-exact fixture: BOM-less UTF-8 with umlauts. Do not open-and-save it with
+  an editor that adds a BOM or converts the encoding; copy it to the probe as-is. Its
+  breakage is wrong DISPLAY (mojibake), not a parse error - unlike the other malformed
+  sensors it shows Up.

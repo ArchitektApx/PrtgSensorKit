@@ -373,3 +373,142 @@ Import-Module ModA, ModB
     }
   }
 }
+
+Describe 'Doctor v1.2.0 script checks (PSK0011-PSK0013)' {
+  BeforeAll {
+    # PSK0011 needs byte-exact files; the shared fixture helper controls content, not encoding.
+    function Invoke-DoctorOnBytes([string]$Content, [System.Text.Encoding]$Encoding) {
+      $file = Join-Path $TestDrive "enc-$(Get-Random).ps1"
+      [System.IO.File]::WriteAllText($file, $Content, $Encoding)
+      @(Invoke-PrtgSensorDoctor -ScriptPath $file -SkipEnvironmentChecks 6>$null)
+    }
+    $script:NonAsciiSensor = "Import-Module PrtgSensorKit`nInvoke-PrtgSensor { Set-PrtgMessage 'gr$([char]0x00FC)n' }"
+  }
+
+  It 'PSK0011: warns on non-ASCII content without a BOM' {
+    $findings = Invoke-DoctorOnBytes $script:NonAsciiSensor ([System.Text.UTF8Encoding]::new($false))
+    $f = Get-Finding $findings 'PSK0011'
+    $f.Severity | Should -Be 'Warning'
+    $f.Line | Should -BeNullOrEmpty
+    $f.Recommendation | Should -Match 'BOM'
+  }
+
+  It 'PSK0011: passes non-ASCII content with a UTF-8 BOM' {
+    $findings = Invoke-DoctorOnBytes $script:NonAsciiSensor ([System.Text.UTF8Encoding]::new($true))
+    (Get-Finding $findings 'PSK0011').Severity | Should -Be 'Pass'
+  }
+
+  It 'PSK0011: passes non-ASCII content with a UTF-16 LE BOM' {
+    $findings = Invoke-DoctorOnBytes $script:NonAsciiSensor ([System.Text.Encoding]::Unicode)
+    (Get-Finding $findings 'PSK0011').Severity | Should -Be 'Pass'
+  }
+
+  It 'PSK0011: passes non-ASCII content with a UTF-16 BE BOM' {
+    $findings = Invoke-DoctorOnBytes $script:NonAsciiSensor ([System.Text.Encoding]::BigEndianUnicode)
+    (Get-Finding $findings 'PSK0011').Severity | Should -Be 'Pass'
+  }
+
+  It 'PSK0011: passes non-ASCII content with a UTF-32 BE BOM' {
+    $findings = Invoke-DoctorOnBytes $script:NonAsciiSensor ([System.Text.Encoding]::GetEncoding('utf-32BE'))
+    (Get-Finding $findings 'PSK0011').Severity | Should -Be 'Pass'
+  }
+
+  It 'PSK0011: passes an all-ASCII file without a BOM' {
+    $findings = Invoke-DoctorOn $script:GoodSensor
+    (Get-Finding $findings 'PSK0011').Severity | Should -Be 'Pass'
+  }
+
+  It 'PSK0012: informs when New-PrtgChannel uses Limit* parameters, with the line' {
+    $findings = Invoke-DoctorOn @'
+Import-Module PrtgSensorKit
+Invoke-PrtgSensor {
+  New-PrtgChannel -Channel 'A' -Value 1 | Add-PrtgChannel
+  New-PrtgChannel -Channel 'B' -Value 2 -LimitMaxError 10 -LimitMode $true | Add-PrtgChannel
+}
+'@
+    $f = Get-Finding $findings 'PSK0012'
+    $f.Severity | Should -Be 'Info'
+    $f.Line | Should -Be 4
+    $f.Message | Should -Match 'first created'
+  }
+
+  It 'PSK0012: passes without limit parameters' {
+    $findings = Invoke-DoctorOn $script:GoodSensor
+    (Get-Finding $findings 'PSK0012').Severity | Should -Be 'Pass'
+  }
+
+  It 'PSK0013: informs when Get-PrtgSecret is used, pointing at the account binding' {
+    $findings = Invoke-DoctorOn @'
+Import-Module PrtgSensorKit
+Invoke-PrtgSensor {
+  $token = Get-PrtgSecret -Name 'Api' -AsPlainText
+  Set-PrtgMessage 'ok'
+}
+'@
+    $f = Get-Finding $findings 'PSK0013'
+    $f.Severity | Should -Be 'Info'
+    $f.Line | Should -Be 3
+    $f.Recommendation | Should -Match 'same account'
+  }
+
+  It 'PSK0013: passes without Get-PrtgSecret' {
+    $findings = Invoke-DoctorOn $script:GoodSensor
+    (Get-Finding $findings 'PSK0013').Severity | Should -Be 'Pass'
+  }
+}
+
+Describe 'Doctor script check edge branches' {
+  It 'PSK0002: informs when the script uses no kit commands at all' {
+    $findings = Invoke-DoctorOn 'Get-Date'
+    (Get-Finding $findings 'PSK0002').Severity | Should -Be 'Info'
+  }
+
+  It 'PSK0008: flags control flow after Invoke-PrtgSensor that can write to stdout' {
+    $findings = Invoke-DoctorOn @'
+Import-Module PrtgSensorKit
+Invoke-PrtgSensor { Set-PrtgMessage 'ok' }
+if ($true) { Get-Date }
+'@
+    (Get-Finding $findings 'PSK0008').Severity | Should -Be 'Warning'
+  }
+
+  It 'PSK0009: reports an unverifiable manual TLS value as Info' {
+    $findings = Invoke-DoctorOn @'
+Import-Module PrtgSensorKit
+$proto = Get-ProtoFromSomewhere
+[Net.ServicePointManager]::SecurityProtocol = $proto
+Invoke-PrtgSensor { $x = Invoke-RestMethod -Uri 'https://example.com' }
+'@
+    $f = Get-Finding $findings 'PSK0009'
+    $f.Severity | Should -Be 'Info'
+    $f.Message | Should -Match 'could not be verified'
+  }
+
+  It 'PSK0010: resolves -DryRun from a literal splat hashtable' {
+    $findings = Invoke-DoctorOn @'
+Import-Module PrtgSensorKit
+$params = @{ DryRun = $true }
+Invoke-PrtgSensor @params { Set-PrtgMessage 'ok' }
+'@
+    (Get-Finding $findings 'PSK0010').Severity | Should -Be 'Warning'
+  }
+
+  It 'PSK0010: reports an unresolvable splat as Info' {
+    $findings = Invoke-DoctorOn @'
+Import-Module PrtgSensorKit
+$params = Get-SensorParams
+Invoke-PrtgSensor @params { Set-PrtgMessage 'ok' }
+'@
+    (Get-Finding $findings 'PSK0010').Severity | Should -Be 'Info'
+  }
+}
+
+Describe 'Doctor environment check dispatch' -Tag 'Windows' {
+  It 'runs the real environment checks on Windows and reports PSK0101' -Skip:(-not (($PSVersionTable.PSEdition -eq 'Desktop') -or [bool]$IsWindows)) {
+    # Machine state (installed modules, pwsh presence) decides the severities, so this
+    # asserts only that the dispatch ran and the probe checks reported back.
+    $findings = Invoke-DoctorOn $script:GoodSensor -WithEnvironment
+    @(Get-Finding $findings 'PSK0101').Count | Should -Be 1
+    @(Get-Finding $findings 'PSK0100') | Should -BeNullOrEmpty
+  }
+}

@@ -4,7 +4,7 @@ function Invoke-PrtgSensorDoctor {
     Diagnoses common problems in a PrtgSensorKit sensor script.
 
   .DESCRIPTION
-    Analyzes a sensor script WITHOUT executing it (pure AST analysis) and checks the
+    Analyzes a sensor script WITHOUT executing it (it only parses the script) and checks the
     machine's environment, then prints a summary and returns one finding object per check.
 
     Script checks (run everywhere):
@@ -18,6 +18,9 @@ function Invoke-PrtgSensorDoctor {
     - PSK0008 no output-producing statements after Invoke-PrtgSensor
     - PSK0009 web cmdlets have TLS set up (-ForceModernTls or manual)
     - PSK0010 no -DryRun left in the script
+    - PSK0011 source encoding is safe for Windows PowerShell 5.1 (all-ASCII or BOM)
+    - PSK0012 reminder that channel limits are snapshotted at sensor creation
+    - PSK0013 reminder that DPAPI secrets are bound to the sensor's account
 
     Environment checks (Windows only, skipped elsewhere; see -SkipEnvironmentChecks):
     - PSK0101 PrtgSensorKit resolvable in 32-bit Windows PowerShell 5.1 (PRTG's host)
