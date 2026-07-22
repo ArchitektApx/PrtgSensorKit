@@ -139,10 +139,11 @@ function Use-PrtgCachedResult {
 
     if ($entries.Count -gt 0) {
       # Newest entry via a single pass (the file may hold a history written by
-      # Save-PrtgSensorState; this cmdlet itself stores exactly one entry).
+      # Save-PrtgSensorState; this cmdlet itself stores exactly one entry). -ge, not
+      # -gt: on a timestamp tie (UtcNow resolution) the later-appended entry wins.
       $newest = $entries[0]
       foreach ($entry in $entries) {
-        if ($entry.Timestamp.ToUniversalTime() -gt $newest.Timestamp.ToUniversalTime()) { $newest = $entry }
+        if ($entry.Timestamp.ToUniversalTime() -ge $newest.Timestamp.ToUniversalTime()) { $newest = $entry }
       }
       if ($newest.Timestamp.ToUniversalTime() -ge ([DateTime]::UtcNow - $MaxAge)) {
         return $newest.Value

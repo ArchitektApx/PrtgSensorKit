@@ -38,6 +38,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   deployed sensors), and `malformed/19` (BOM-less non-ASCII fixture the Doctor flags as
   PSK0011 and PRTG displays as mojibake).
 
+### Fixed
+
+- `Get-PrtgSensorState -Latest` (and the cache hit path of `Use-PrtgCachedResult`) could
+  return an OLDER entry when two saves landed within the clock resolution of
+  `[DateTime]::UtcNow` (~15 ms on Windows PowerShell 5.1) and their timestamps tied.
+  Ties now resolve to the last-appended entry.
+
 ### Changed
 
 - Documentation restructured: the README now covers install, quickstart, and navigation;

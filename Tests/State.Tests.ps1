@@ -283,3 +283,22 @@ Describe 'Sensor state coverage gaps' {
     }
   }
 }
+
+Describe 'Timestamp tie-breaking' {
+  # UtcNow has ~15 ms resolution on .NET Framework: two quick saves can carry identical
+  # timestamps. The crafted files below make the tie deterministic instead of relying on
+  # a fast machine to reproduce the race (which is how CI caught it).
+  BeforeEach {
+    $dir = Join-Path $TestDrive "tie-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $dir)
+    $ts = [DateTime]::UtcNow
+    @(
+      [PSCustomObject]@{ Value = 'older'; Timestamp = $ts }
+      [PSCustomObject]@{ Value = 'newer'; Timestamp = $ts }
+    ) | Export-Clixml -LiteralPath (Join-Path $dir 'tie.clixml')
+  }
+
+  It '-Latest returns the last-appended entry when timestamps tie' {
+    Get-PrtgSensorState -Key 'tie' -Path $dir -Latest | Should -Be 'newer'
+  }
+}

@@ -172,3 +172,16 @@ Describe 'Use-PrtgCachedResult resilience' {
     Use-PrtgCachedResult -Key 'hist' -MaxAge $script:FiveMinutes -Path $dir { 'never' } | Should -Be 'newer'
   }
 }
+
+Describe 'Use-PrtgCachedResult timestamp tie-breaking' {
+  It 'serves the last-appended entry when timestamps tie' {
+    $dir = Join-Path $TestDrive "cache-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $dir)
+    $ts = [DateTime]::UtcNow
+    @(
+      [PSCustomObject]@{ Value = 'older'; Timestamp = $ts }
+      [PSCustomObject]@{ Value = 'newer'; Timestamp = $ts }
+    ) | Export-Clixml -LiteralPath (Join-Path $dir 'tie.clixml')
+    Use-PrtgCachedResult -Key 'tie' -MaxAge $script:FiveMinutes -Path $dir { 'refetched' } | Should -Be 'newer'
+  }
+}
