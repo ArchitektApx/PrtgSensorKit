@@ -14,8 +14,13 @@ function Format-PrtgErrorText {
     [System.Management.Automation.ErrorRecord]$ErrorObject
   )
 
-  "line:$($ErrorObject.InvocationInfo.ScriptLineNumber.ToString()) " +
-  "char:$($ErrorObject.InvocationInfo.OffsetInLine.ToString()) --- " +
+  $invocation = $ErrorObject.InvocationInfo
+  $lineNumber = if ($invocation) { $invocation.ScriptLineNumber.ToString() } else { 'unknown' }
+  $charOffset = if ($invocation) { $invocation.OffsetInLine.ToString() } else { 'unknown' }
+  $sourceLine = if ($invocation) { $invocation.Line.ToString() } else { '' }
+
+  "line:$lineNumber " +
+  "char:$charOffset --- " +
   "message: $($ErrorObject.Exception.Message.ToString()) --- " +
-  "line: $($ErrorObject.InvocationInfo.Line.ToString())"
+  "line: $sourceLine"
 }
