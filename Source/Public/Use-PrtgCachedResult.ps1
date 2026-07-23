@@ -127,15 +127,14 @@ function Use-PrtgCachedResult {
   # The lock is held across check + fetch + write on purpose: that is the entire fix for
   # the thundering-herd race the manual state pattern has.
   Invoke-PrtgStateLock -LockFile $lockFile -TimeoutSeconds $TimeoutSeconds -Force:$Force -ScriptBlock {
-    $entries = @()
-    if (Test-Path -LiteralPath $file) {
-      try {
-        $entries = @(Import-Clixml -LiteralPath $file)
-      } catch {
-        Write-Warning "Use-PrtgCachedResult: cache file '$file' is unreadable, refetching. ($($_.Exception.Message))"
-        $entries = @()
-      }
+    $loaded = Get-PrtgStateEntry -File $file
+    if ($loaded.Unreadable) {
+      Write-Warning "Use-PrtgCachedResult: cache file '$file' is unreadable, refetching. ($($loaded.UnreadableMessage))"
     }
+    if ($loaded.MalformedCount -gt 0) {
+      Write-Warning "Use-PrtgCachedResult: cache file '$file' had $($loaded.MalformedCount) malformed entries (corrupted on disk), ignoring them."
+    }
+    $entries = @($loaded.Entries)
 
     if ($entries.Count -gt 0) {
       # Newest entry via a single pass (the file may hold a history written by

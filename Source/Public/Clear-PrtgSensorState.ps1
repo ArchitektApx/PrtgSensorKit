@@ -105,12 +105,14 @@ function Clear-PrtgSensorState {
       return
     }
 
-    $entries = @()
-    try {
-      $entries = @(Import-Clixml -LiteralPath $file)
-    } catch {
-      Write-Warning "Clear-PrtgSensorState: state file '$file' is unreadable and will be deleted. ($($_.Exception.Message))"
+    $loaded = Get-PrtgStateEntry -File $file
+    if ($loaded.Unreadable) {
+      Write-Warning "Clear-PrtgSensorState: state file '$file' is unreadable and will be deleted. ($($loaded.UnreadableMessage))"
     }
+    if ($loaded.MalformedCount -gt 0) {
+      Write-Warning "Clear-PrtgSensorState: state file '$file' had $($loaded.MalformedCount) malformed entries (corrupted on disk), ignoring them."
+    }
+    $entries = @($loaded.Entries)
 
     $cutoff = [DateTime]::UtcNow - $MaxAge
     $keep = @($entries | Where-Object { $_.Timestamp.ToUniversalTime() -ge $cutoff })
