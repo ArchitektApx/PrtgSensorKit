@@ -23,6 +23,12 @@ function Clear-PrtgSensorState {
     Folder the state was stored in. Defaults to '$env:ProgramData\PrtgSensorKit\State' on
     Windows, or a temp folder on other platforms.
 
+  .PARAMETER Depth
+    Serialization depth used when re-exporting the pruned entries (default 10). Raise it to
+    match (or exceed) the -Depth used when the entries were originally saved with
+    Save-PrtgSensorState, or -MaxAge pruning will silently flatten nested data beyond this
+    depth.
+
   .PARAMETER TimeoutSeconds
     Maximum time to wait for the state file lock (default 10). 0 means a single try that
     fails immediately when another run holds the lock. On expiry a terminating error is
@@ -68,6 +74,10 @@ function Clear-PrtgSensorState {
     [string]$Path,
 
     [Parameter(Mandatory = $false)]
+    [ValidateRange(1, 100)]
+    [int]$Depth = 10,
+
+    [Parameter(Mandatory = $false)]
     [ValidateRange(0, 3600)]
     [int]$TimeoutSeconds = 10,
 
@@ -95,12 +105,14 @@ function Clear-PrtgSensorState {
       return
     }
 
-    $entries = @()
-    try {
-      $entries = @(Import-Clixml -LiteralPath $file)
-    } catch {
-      Write-Warning "Clear-PrtgSensorState: state file '$file' is unreadable and will be deleted. ($($_.Exception.Message))"
+    $loaded = Get-PrtgStateEntry -File $file
+    if ($loaded.Unreadable) {
+      Write-Warning "Clear-PrtgSensorState: state file '$file' is unreadable and will be deleted. ($($loaded.UnreadableMessage))"
     }
+    if ($loaded.MalformedCount -gt 0) {
+      Write-Warning "Clear-PrtgSensorState: state file '$file' had $($loaded.MalformedCount) malformed entries (corrupted on disk), ignoring them."
+    }
+    $entries = @($loaded.Entries)
 
     $cutoff = [DateTime]::UtcNow - $MaxAge
     $keep = @($entries | Where-Object { $_.Timestamp.ToUniversalTime() -ge $cutoff })
@@ -109,7 +121,7 @@ function Clear-PrtgSensorState {
       Remove-Item -LiteralPath $file -Force
       Write-Verbose "Cleared state '$Key' (no entries younger than $MaxAge, '$file' deleted)."
     } else {
-      $keep | Export-Clixml -LiteralPath $file -Depth 10 -Force
+      $keep | Export-Clixml -LiteralPath $file -Depth $Depth -Force
       Write-Verbose "Pruned state '$Key' to $($keep.Count) entries younger than $MaxAge."
     }
   }

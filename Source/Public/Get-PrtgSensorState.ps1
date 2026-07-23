@@ -89,13 +89,14 @@ function Get-PrtgSensorState {
   $lockFile = "$file.lock"
 
   $entries = Invoke-PrtgStateLock -LockFile $lockFile -TimeoutSeconds $TimeoutSeconds -Force:$Force -ScriptBlock {
-    if (-not (Test-Path -LiteralPath $file)) { return @() }
-    try {
-      @(Import-Clixml -LiteralPath $file)
-    } catch {
-      Write-Warning "Get-PrtgSensorState: state file '$file' is unreadable, treating it as empty. ($($_.Exception.Message))"
-      @()
+    $loaded = Get-PrtgStateEntry -File $file
+    if ($loaded.Unreadable) {
+      Write-Warning "Get-PrtgSensorState: state file '$file' is unreadable, treating it as empty. ($($loaded.UnreadableMessage))"
     }
+    if ($loaded.MalformedCount -gt 0) {
+      Write-Warning "Get-PrtgSensorState: state file '$file' had $($loaded.MalformedCount) malformed entries (corrupted on disk), ignoring them."
+    }
+    $loaded.Entries
   }
 
   $entries = @($entries)

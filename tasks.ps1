@@ -1,5 +1,5 @@
 param(
-  [ValidateSet('build', 'test', 'lint', 'install_dev_requirements', 'prepare_release')]
+  [ValidateSet('build', 'test', 'lint', 'fuzz', 'install_dev_requirements', 'prepare_release')]
   [string]$Task = 'build',
 
   # Only used by prepare_release: ./tasks.ps1 prepare_release 1.1.0
@@ -17,6 +17,10 @@ switch ($Task) {
   }
   'lint' {
     . $(Join-Path "Tools" "lint.ps1")
+    break
+  }
+  'fuzz' {
+    . $(Join-Path "Tools" "fuzz.ps1") 4>$null 3>$null
     break
   }
   'install_dev_requirements' {

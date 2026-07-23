@@ -1,4 +1,4 @@
-# Prepares a release: gates on lint/build/test, verifies the changelog has content for
+# Prepares a release: gates on lint/build/test/fuzz, verifies the changelog has content for
 # the release, stamps the new version into README.md and build.psd1, then rebuilds and
 # verifies the built module actually carries the new version.
 #
@@ -36,6 +36,9 @@ try {
 
   Write-Step "prepare_release ${Version}: test"
   ./tasks.ps1 test
+
+  Write-Step "prepare_release ${Version}: fuzz"
+  ./tasks.ps1 fuzz
 
   # --- 2) Changelog must contain the release's changes ---------------------------------
   Write-Step "prepare_release ${Version}: changelog check"
