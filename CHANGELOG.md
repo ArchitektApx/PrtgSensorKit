@@ -5,6 +5,30 @@ All notable changes to PrtgSensorKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-07-23
+
+### Fixed
+
+- `Clear-PrtgSensorState -MaxAge`: the pruned re-export used a hardcoded `-Depth 10`, silently
+  flattening state saved with `Save-PrtgSensorState -Depth` above that. `Clear-PrtgSensorState`
+  now takes its own `-Depth` (default 10, matching the previous hardcoded value).
+- `Write-PrtgError`: a hand-built `ErrorRecord` (as opposed to one from an actual `throw`) has a
+  `$null` `InvocationInfo`; formatting one threw a `NullReferenceException` instead of emitting
+  the PRTG error response. Missing invocation details now render as `unknown` instead of
+  crashing.
+- `Get-PrtgSensorState` / `Save-PrtgSensorState` / `Clear-PrtgSensorState` /
+  `Use-PrtgCachedResult`: a state or cache file corrupted on disk (readable clixml, but with a
+  malformed entry) could crash the cmdlet or silently return/store a broken entry. Malformed
+  entries (missing `Value`/`Timestamp`, or a `Timestamp` that isn't a `DateTime`) are now
+  dropped, with a warning, instead.
+
+### Added
+
+- `Tools/fuzz.ps1`: a mutation fuzzer (bit-flip/insert/delete/duplicate) exercising the sensor
+  doctor, JSON output pipeline, sensor state store, error output, `Invoke-PrtgSensor`'s
+  retry/`-DryRun` wrapper, and `Write-PrtgLog` against adversarial and corrupted input. Wired
+  into `./tasks.ps1 fuzz` and gated on by `prepare_release` before every release.
+
 ## [1.2.0] - 2026-07-22
 
 ### Added
@@ -122,7 +146,8 @@ shape changed. Sensors written against 1.0.0 behave identically after upgrading.
 - Full comment-based help on every command, 17 runnable examples, Pester suite run
   against the built module on Windows PowerShell 5.1 and PowerShell 7.
 
-[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.2.0...HEAD
+[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/ArchitektApx/PrtgSensorKit/releases/tag/v1.0.0

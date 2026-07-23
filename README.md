@@ -5,7 +5,7 @@
 **PowerShell framework for building [PRTG](https://www.paessler.com/) custom EXE/Script Advanced sensors - less boilerplate, valid JSON output every time.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/Version-1.2.0-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-1.2.1-green.svg)](CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/PowerShell-5.1%20|%207+-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![Built with ModuleBuilder](https://img.shields.io/badge/Built%20with-ModuleBuilder-8A2BE2.svg)](https://github.com/PoshCode/ModuleBuilder)
 
