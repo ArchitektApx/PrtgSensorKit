@@ -12,6 +12,9 @@ Dist/
 # Code coverage
 coverage.xml
 
+# Fuzzer repro artifacts
+Tools/fuzz-failures/
+
 # IDEs
 .claude/
 .vscode/
