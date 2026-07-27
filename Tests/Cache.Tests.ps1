@@ -165,6 +165,51 @@ Describe 'Use-PrtgCachedResult resilience' {
     @($warnings) -join ' ' | Should -BeLike '*unreadable*'
   }
 
+  It 'keeps the previous cached value when the refresh write fails part-way' {
+    # Export-Clixml truncates before it writes, so refreshing straight into the cache file would
+    # corrupt the entry every sensor on the probe shares. The refresh writes a temp file first.
+    Use-PrtgCachedResult -Key 'atomic' -MaxAge ([TimeSpan]::FromMilliseconds(1)) -Path $dir { 'original' } | Out-Null
+    Start-Sleep -Milliseconds 20
+    Mock -CommandName Export-Clixml -ModuleName PrtgSensorKit -MockWith { throw 'simulated write failure' }
+    { Use-PrtgCachedResult -Key 'atomic' -MaxAge ([TimeSpan]::FromMilliseconds(1)) -Path $dir -ErrorAction Stop { 'replacement' } } |
+      Should -Throw
+    (Import-Clixml -LiteralPath (Join-Path $dir 'atomic.clixml')).Value | Should -Be 'original'
+  }
+
+  It 'leaves no temp files behind on a successful refresh' {
+    Use-PrtgCachedResult -Key 'notemp' -MaxAge $script:FiveMinutes -Path $dir { 'v' } | Out-Null
+    @(Get-ChildItem -LiteralPath $dir -Filter '*.tmp') | Should -BeNullOrEmpty
+  }
+
+  It 'leaves a fresh temp file alone and clears an old one' {
+    # -Force skips the lock, so two instances can be in the write at once; only a temp file old
+    # enough to be a leftover from a killed run is removed.
+    [void] (New-Item -ItemType Directory -Path $dir)
+    $fresh = Join-Path $dir 'sweep.clixml.aaa.tmp'
+    $old = Join-Path $dir 'sweep.clixml.bbb.tmp'
+    Set-Content -LiteralPath $fresh -Value 'in flight'
+    Set-Content -LiteralPath $old -Value 'leftover'
+    (Get-Item -LiteralPath $old).LastWriteTimeUtc = [DateTime]::UtcNow.AddHours(-2)
+    Use-PrtgCachedResult -Key 'sweep' -MaxAge $script:FiveMinutes -Path $dir { 'v' } | Out-Null
+    Test-Path -LiteralPath $fresh | Should -BeTrue
+    Test-Path -LiteralPath $old | Should -BeFalse
+  }
+
+  It 'honours -Depth instead of always exporting at the hardcoded default' {
+    # Depth only bites on rich .NET objects (a FileInfo's Directory, a CIM instance), not on
+    # PSCustomObject trees, so a FileInfo is what makes the parameter observable: at depth 1 its
+    # Directory flattens to a string, at the default it survives as an object.
+    [void] (New-Item -ItemType Directory -Path $dir)
+    $probe = New-Item -ItemType File -Path (Join-Path $dir 'probe.txt')
+    Use-PrtgCachedResult -Key 'shallow' -MaxAge $script:FiveMinutes -Path $dir -Depth 1 { $probe } | Out-Null
+    $flat = Use-PrtgCachedResult -Key 'shallow' -MaxAge $script:FiveMinutes -Path $dir { 'never' }
+    $flat.Directory | Should -BeOfType [string]
+
+    Use-PrtgCachedResult -Key 'full' -MaxAge $script:FiveMinutes -Path $dir { $probe } | Out-Null
+    $kept = Use-PrtgCachedResult -Key 'full' -MaxAge $script:FiveMinutes -Path $dir { 'never' }
+    $kept.Directory | Should -Not -BeOfType [string]
+  }
+
   It 'serves the newest entry when the file holds a history' {
     Save-PrtgSensorState -Key 'hist' -Value 'older' -Path $dir
     Start-Sleep -Milliseconds 50
@@ -183,5 +228,57 @@ Describe 'Use-PrtgCachedResult timestamp tie-breaking' {
       [PSCustomObject]@{ Value = 'newer'; Timestamp = $ts }
     ) | Export-Clixml -LiteralPath (Join-Path $dir 'tie.clixml')
     Use-PrtgCachedResult -Key 'tie' -MaxAge $script:FiveMinutes -Path $dir { 'refetched' } | Should -Be 'newer'
+  }
+}
+
+Describe 'Use-PrtgCachedResult -SkipNullCache' {
+  BeforeEach { $dir = Join-Path $TestDrive "cache-null-$(Get-Random)" }
+
+  It 'refetches instead of serving a cached $null' {
+    $counter = @{ n = 0 }
+    $first = Use-PrtgCachedResult -Key 'nullable' -MaxAge $script:FiveMinutes -Path $dir -SkipNullCache { $counter.n++; $null }
+    $second = Use-PrtgCachedResult -Key 'nullable' -MaxAge $script:FiveMinutes -Path $dir -SkipNullCache { $counter.n++; 'fresh' }
+    $first  | Should -BeNullOrEmpty
+    $second | Should -Be 'fresh'
+    $counter.n | Should -Be 2
+  }
+
+  It 'does not write a $null result to the cache file' {
+    Use-PrtgCachedResult -Key 'nowrite' -MaxAge $script:FiveMinutes -Path $dir -SkipNullCache { $null } | Out-Null
+    Test-Path -LiteralPath (Join-Path $dir 'nowrite.clixml') | Should -BeFalse
+  }
+
+  It 'caches a non-null result normally' {
+    $counter = @{ n = 0 }
+    Use-PrtgCachedResult -Key 'real' -MaxAge $script:FiveMinutes -Path $dir -SkipNullCache { $counter.n++; 'value' } | Out-Null
+    Use-PrtgCachedResult -Key 'real' -MaxAge $script:FiveMinutes -Path $dir -SkipNullCache { $counter.n++; 'never' } |
+      Should -Be 'value'
+    $counter.n | Should -Be 1
+  }
+
+  It 'still caches a stored 0 and empty string' {
+    $counter = @{ n = 0 }
+    Use-PrtgCachedResult -Key 'zero' -MaxAge $script:FiveMinutes -Path $dir -SkipNullCache { $counter.n++; 0 } | Out-Null
+    Use-PrtgCachedResult -Key 'zero' -MaxAge $script:FiveMinutes -Path $dir -SkipNullCache { $counter.n++; 99 } |
+      Should -Be 0
+    Use-PrtgCachedResult -Key 'empty' -MaxAge $script:FiveMinutes -Path $dir -SkipNullCache { $counter.n++; '' } | Out-Null
+    Use-PrtgCachedResult -Key 'empty' -MaxAge $script:FiveMinutes -Path $dir -SkipNullCache { $counter.n++; 'x' } |
+      Should -BeExactly ''
+    $counter.n | Should -Be 2
+  }
+
+  It 'leaves an existing stale entry in place when the fetch returns $null' {
+    Save-PrtgSensorState -Key 'keepstale' -Value 'stale' -Path $dir
+    Use-PrtgCachedResult -Key 'keepstale' -MaxAge (New-TimeSpan -Seconds 0) -Path $dir -SkipNullCache { $null } |
+      Should -BeNullOrEmpty
+    Get-PrtgSensorState -Key 'keepstale' -Path $dir -Latest | Should -Be 'stale'
+  }
+
+  It 'serves a cached $null when the switch is absent (default behaviour unchanged)' {
+    $counter = @{ n = 0 }
+    Use-PrtgCachedResult -Key 'default' -MaxAge $script:FiveMinutes -Path $dir { $counter.n++; $null } | Out-Null
+    Use-PrtgCachedResult -Key 'default' -MaxAge $script:FiveMinutes -Path $dir { $counter.n++; 'never' } |
+      Should -BeNullOrEmpty
+    $counter.n | Should -Be 1
   }
 }
