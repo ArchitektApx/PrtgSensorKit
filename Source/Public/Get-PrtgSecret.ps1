@@ -20,6 +20,8 @@ function Get-PrtgSecret {
     Return the secret as a plain [string] instead of a SecureString/PSCredential. For a stored
     SecureString this is the secret itself; for a stored PSCredential this is the password. Use
     only when an API requires the raw value - it defeats the point of keeping it a SecureString.
+    Throws if the stored payload is neither, which only happens for a hand-written or truncated
+    file, rather than silently returning an object that would stringify into a request header.
 
   .PARAMETER AllowUnprotected
     Development only. Allows reading a secret off Windows, where it was stored obfuscated rather
@@ -73,9 +75,18 @@ function Get-PrtgSecret {
 
   try {
     $object = Import-Clixml -LiteralPath $file
+  } catch [System.Xml.XmlException] {
+    # Malformed XML is file corruption, not an account mismatch. Blaming DPAPI here would send
+    # the operator off to check permissions for a problem no re-permissioning can fix.
+    throw "Secret '$Name' at '$file' is corrupt: the file is not well-formed XML, so it was not written completely. Re-save it with Save-PrtgSecret. ($($_.Exception.Message))"
   } catch {
     $who = if ($onWindows) { [System.Security.Principal.WindowsIdentity]::GetCurrent().Name } else { $env:USER }
     throw "Failed to decrypt secret '$Name'. DPAPI-protected secrets can only be read by the same Windows account and machine that saved them; this is running as '$who'. Re-save the secret as that account. ($($_.Exception.Message))"
+  }
+
+  # A truncated file (a save that failed part-way) deserializes to $null WITHOUT throwing above.
+  if ($null -eq $object) {
+    throw "Secret '$Name' at '$file' is empty or truncated, so it holds no usable value. Re-save it with Save-PrtgSecret."
   }
 
   if ($AsPlainText) {
@@ -85,6 +96,9 @@ function Get-PrtgSecret {
     if ($object -is [System.Security.SecureString]) {
       return [System.Net.NetworkCredential]::new('', $object).Password
     }
+    # Only reachable for a hand-written or foreign clixml. Throwing beats returning an object the
+    # caller asked to get as a string.
+    throw "Secret '$Name' holds a [$($object.GetType().FullName)], not a PSCredential or SecureString, so -AsPlainText cannot produce a string. Re-save it with Save-PrtgSecret -Secret or -Credential."
   }
 
   return $object
