@@ -1,3 +1,7 @@
+# Dot-sourced at top level as well as in BeforeAll: -Skip: is evaluated at DISCOVERY time.
+. $PSScriptRoot/_TestHelpers.ps1
+$onWindows = Test-OnWindowsHost
+
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
   Import-BuiltPrtgModule
@@ -48,7 +52,7 @@ Describe 'Invoke-PrtgSensorDoctor basics' {
     @($findings | Where-Object CheckId -like 'PSK01??' | Where-Object CheckId -ne 'PSK0100') | Should -BeNullOrEmpty
   }
 
-  It 'auto-skips environment checks on non-Windows with an Info finding' -Skip:(($PSVersionTable.PSEdition -eq 'Desktop') -or [bool]$IsWindows) {
+  It 'auto-skips environment checks on non-Windows with an Info finding' -Skip:$onWindows {
     $findings = Invoke-DoctorOn $script:GoodSensor -WithEnvironment
     (Get-Finding $findings 'PSK0100').Message | Should -Match 'not running on Windows'
   }
@@ -504,11 +508,71 @@ Invoke-PrtgSensor @params { Set-PrtgMessage 'ok' }
 }
 
 Describe 'Doctor environment check dispatch' -Tag 'Windows' {
-  It 'runs the real environment checks on Windows and reports PSK0101' -Skip:(-not (($PSVersionTable.PSEdition -eq 'Desktop') -or [bool]$IsWindows)) {
+  It 'runs the real environment checks on Windows and reports PSK0101' -Skip:(-not $onWindows) {
     # Machine state (installed modules, pwsh presence) decides the severities, so this
     # asserts only that the dispatch ran and the probe checks reported back.
     $findings = Invoke-DoctorOn $script:GoodSensor -WithEnvironment
     @(Get-Finding $findings 'PSK0101').Count | Should -Be 1
     @(Get-Finding $findings 'PSK0100') | Should -BeNullOrEmpty
+  }
+}
+
+# The PSK0101-0104 tests above mock Invoke-PrtgDoctorModuleProbe and Get-PrtgDoctorHostPath, so
+# the real bodies never run. These exercise them for real against a machine that actually has the
+# module installed for all users, which is the state a PRTG probe is in.
+$moduleInstalledForReal = $onWindows -and [bool](
+  Get-Module -ListAvailable -Name PrtgSensorKit -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -notlike '*Dist*' })
+
+Describe 'Get-PrtgDoctorHostPath (unmocked, Windows)' -Tag 'Windows' -Skip:(-not $onWindows) {
+  It 'resolves a real powershell.exe for both bitnesses' {
+    InModuleScope PrtgSensorKit {
+      foreach ($bitness in 'x86', 'x64') {
+        $path = Get-PrtgDoctorHostPath -Bitness $bitness
+        $path | Should -BeLike '*WindowsPowerShell\v1.0\powershell.exe'
+        # Sysnative is visible only to a 32-bit process, so a 64-bit run cannot Test-Path it.
+        if ($path -notlike '*Sysnative*') {
+          Test-Path -LiteralPath $path | Should -BeTrue -Because "$bitness host should exist at $path"
+        }
+      }
+    }
+  }
+
+  It 'escapes WOW64 redirection correctly for the current process bitness' {
+    InModuleScope PrtgSensorKit {
+      $x64 = Get-PrtgDoctorHostPath -Bitness 'x64'
+      $x86 = Get-PrtgDoctorHostPath -Bitness 'x86'
+      $x64 | Should -Not -Be $x86
+      if ([System.Environment]::Is64BitProcess) {
+        $x64 | Should -BeLike '*System32*'
+        $x86 | Should -BeLike '*SysWOW64*'
+      } else {
+        $x64 | Should -BeLike '*Sysnative*'
+        $x86 | Should -BeLike '*System32*'
+      }
+    }
+  }
+}
+
+Describe 'Doctor environment probes against a real installed module' -Tag 'Windows' -Skip:(-not $moduleInstalledForReal) {
+  # Skipped unless PrtgSensorKit resolves from a real module path (not Dist), i.e. the probe
+  # machine. In CI the module is built but never installed, so these do not run there.
+  It 'PSK0102 passes when the module really is resolvable in 64-bit Windows PowerShell' {
+    $f = InModuleScope PrtgSensorKit { @(Test-PrtgDoctorEnvironment -UsesRestart64Bit $true) } |
+      Where-Object CheckId -eq 'PSK0102'
+    $f.Severity | Should -Be 'Pass'
+    $f.Message  | Should -BeLike '*resolvable in 64-bit Windows PowerShell*'
+  }
+
+  It 'PSK0103 passes when pwsh is present and the module resolves there' {
+    $f = InModuleScope PrtgSensorKit { @(Test-PrtgDoctorEnvironment -UsesRestartInPwsh $true) } |
+      Where-Object CheckId -eq 'PSK0103'
+    $f.Severity | Should -Be 'Pass'
+    $f.Message  | Should -BeLike '*pwsh is available*'
+  }
+
+  It 'PSK0101 passes for the current host' {
+    $f = InModuleScope PrtgSensorKit { @(Test-PrtgDoctorEnvironment) } | Where-Object CheckId -eq 'PSK0101'
+    $f.Severity | Should -Be 'Pass'
   }
 }

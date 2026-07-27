@@ -24,8 +24,9 @@ function Get-PrtgSensorState {
     The common "give me last run's value" shortcut.
 
   .PARAMETER Default
-    Returned when nothing matches (no state file, empty history, or everything older than
-    -MaxAge). Defaults to $null.
+    Returned when nothing matches (no state file, empty history, everything older than
+    -MaxAge, or -Latest finding a stored $null). Defaults to $null. A stored 0, '', or
+    $false is a real value and is returned as-is.
 
   .PARAMETER Path
     Folder the state was stored in. Defaults to '$env:ProgramData\PrtgSensorKit\State' on
@@ -84,11 +85,10 @@ function Get-PrtgSensorState {
     [switch]$Force
   )
 
-  $folder = Get-PrtgStatePath -Path $Path
-  $file = Join-Path $folder "$Key.clixml"
-  $lockFile = "$file.lock"
+  $state = Get-PrtgStateFile -Key $Key -Path $Path
+  $file = $state.File
 
-  $entries = Invoke-PrtgStateLock -LockFile $lockFile -TimeoutSeconds $TimeoutSeconds -Force:$Force -ScriptBlock {
+  $entries = Invoke-PrtgStateLock -LockFile $state.LockFile -TimeoutSeconds $TimeoutSeconds -Force:$Force -ScriptBlock {
     $loaded = Get-PrtgStateEntry -File $file
     if ($loaded.Unreadable) {
       Write-Warning "Get-PrtgSensorState: state file '$file' is unreadable, treating it as empty. ($($loaded.UnreadableMessage))"
@@ -112,15 +112,10 @@ function Get-PrtgSensorState {
   }
 
   if ($Latest) {
-    # Single pass instead of sorting the whole history for one value; this runs on every
-    # scan interval and the history can be large when -MaxEntries is not used on save.
-    # -ge, not -gt: UtcNow has ~15 ms resolution on .NET Framework, so two quick saves
-    # can carry IDENTICAL timestamps. File order is append order, so on a tie the
-    # later-appended (newer) entry must win.
-    $newest = $entries[0]
-    foreach ($entry in $entries) {
-      if ($entry.Timestamp.ToUniversalTime() -ge $newest.Timestamp.ToUniversalTime()) { $newest = $entry }
-    }
+    $newest = Get-PrtgNewestEntry -Entries $entries
+    # A stored $null is not a usable value for a caller doing arithmetic, so -Default wins.
+    # -eq $null, not a truthiness test: a stored 0 or '' must NOT fall back.
+    if ($null -eq $newest.Value) { return $Default }
     return $newest.Value
   }
 

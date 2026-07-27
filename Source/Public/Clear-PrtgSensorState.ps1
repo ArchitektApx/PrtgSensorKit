@@ -88,9 +88,9 @@ function Clear-PrtgSensorState {
     [switch]$ClearLock
   )
 
-  $folder = Get-PrtgStatePath -Path $Path
-  $file = Join-Path $folder "$Key.clixml"
-  $lockFile = "$file.lock"
+  $state = Get-PrtgStateFile -Key $Key -Path $Path
+  $file = $state.File
+  $lockFile = $state.LockFile
 
   # Captured here: $PSBoundParameters inside the script block below would be the block's
   # own (empty) bound parameters, not this function's.
@@ -121,7 +121,7 @@ function Clear-PrtgSensorState {
       Remove-Item -LiteralPath $file -Force
       Write-Verbose "Cleared state '$Key' (no entries younger than $MaxAge, '$file' deleted)."
     } else {
-      $keep | Export-Clixml -LiteralPath $file -Depth $Depth -Force
+      Export-PrtgClixmlAtomic -InputObject $keep -LiteralPath $file -Depth $Depth
       Write-Verbose "Pruned state '$Key' to $($keep.Count) entries younger than $MaxAge."
     }
   }

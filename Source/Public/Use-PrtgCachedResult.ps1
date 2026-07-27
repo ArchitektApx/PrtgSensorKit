@@ -25,6 +25,8 @@ function Use-PrtgCachedResult {
       it becomes the sensor error) and nothing is written; an existing stale entry is
       kept so the next caller retries the fetch.
     - A block returning $null is a valid result: $null is stored and served as $null.
+      Use -SkipNullCache when a $null means "the fetch produced nothing useful" and you
+      would rather pay for a retry than serve it.
     - A cached result keeps its properties but not its methods: treat it as plain data
       on both paths, like data read from a file. Live handles (sockets, sessions,
       database connections) cannot be cached.
@@ -57,11 +59,25 @@ function Use-PrtgCachedResult {
     Folder for the cache file. Defaults to '$env:ProgramData\PrtgSensorKit\State' on
     Windows, or a temp folder on other platforms (same store as the state cmdlets).
 
+  .PARAMETER Depth
+    Serialization depth passed to Export-Clixml (default 5), same meaning as on
+    Save-PrtgSensorState. Raise it when the block returns rich .NET objects whose nested
+    properties matter (a CIM instance, a FileInfo); beyond the depth those flatten to strings.
+    Object trees built from PSCustomObjects and hashtables - an Invoke-RestMethod response,
+    for instance - are not affected by the depth limit.
+
   .PARAMETER TimeoutSeconds
     Maximum time to wait for the cache lock (default 30 - higher than the state cmdlets'
     10, because waiting sensors hold out for the duration of a sibling's fetch). Set it
     above the slowest expected fetch. On expiry a terminating error is thrown: that is a
     real contention problem and should become a visible PRTG error.
+
+  .PARAMETER SkipNullCache
+    Treat a $null result as "nothing worth caching": a stored $null is ignored on read (the
+    block runs again) and a $null returned by the block is not written to the cache file.
+    Off by default, because it costs the cmdlet's main guarantee - a source that keeps
+    returning $null is then refetched by EVERY sensor on EVERY interval instead of once.
+    Use it only when a $null genuinely means the fetch failed and a retry is worth the calls.
 
   .PARAMETER Force
     Bypass locking entirely: best-effort read-or-fetch without serialization, which may
@@ -91,7 +107,7 @@ function Use-PrtgCachedResult {
     Clear-PrtgSensorState
   #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-    Justification = 'MaxAge and ScriptBlock are used inside the script block passed to Invoke-PrtgStateLock; the analyzer cannot see into it.')]
+    Justification = 'MaxAge, ScriptBlock, Depth, and SkipNullCache are used inside the script block passed to Invoke-PrtgStateLock; the analyzer cannot see into it.')]
   [CmdletBinding()]
   param(
     [Parameter(Mandatory = $true)]
@@ -108,16 +124,22 @@ function Use-PrtgCachedResult {
     [string]$Path,
 
     [Parameter(Mandatory = $false)]
+    [ValidateRange(1, 100)]
+    [int]$Depth = 5,
+
+    [Parameter(Mandatory = $false)]
     [ValidateRange(0, 3600)]
     [int]$TimeoutSeconds = 30,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$SkipNullCache,
 
     [Parameter(Mandatory = $false)]
     [switch]$Force
   )
 
-  $folder = Get-PrtgStatePath -Path $Path
-  $file = Join-Path $folder "$Key.clixml"
-  $lockFile = "$file.lock"
+  $state = Get-PrtgStateFile -Key $Key -Path $Path
+  $file = $state.File
 
   # The block below runs inside Invoke-PrtgStateLock, where '$ScriptBlock' dynamically
   # resolves to the lock function's OWN parameter (the block itself) - invoking that
@@ -126,7 +148,7 @@ function Use-PrtgCachedResult {
 
   # The lock is held across check + fetch + write on purpose: that is the entire fix for
   # the thundering-herd race the manual state pattern has.
-  Invoke-PrtgStateLock -LockFile $lockFile -TimeoutSeconds $TimeoutSeconds -Force:$Force -ScriptBlock {
+  Invoke-PrtgStateLock -LockFile $state.LockFile -TimeoutSeconds $TimeoutSeconds -Force:$Force -ScriptBlock {
     $loaded = Get-PrtgStateEntry -File $file
     if ($loaded.Unreadable) {
       Write-Warning "Use-PrtgCachedResult: cache file '$file' is unreadable, refetching. ($($loaded.UnreadableMessage))"
@@ -137,14 +159,12 @@ function Use-PrtgCachedResult {
     $entries = @($loaded.Entries)
 
     if ($entries.Count -gt 0) {
-      # Newest entry via a single pass (the file may hold a history written by
-      # Save-PrtgSensorState; this cmdlet itself stores exactly one entry). -ge, not
-      # -gt: on a timestamp tie (UtcNow resolution) the later-appended entry wins.
-      $newest = $entries[0]
-      foreach ($entry in $entries) {
-        if ($entry.Timestamp.ToUniversalTime() -ge $newest.Timestamp.ToUniversalTime()) { $newest = $entry }
-      }
-      if ($newest.Timestamp.ToUniversalTime() -ge ([DateTime]::UtcNow - $MaxAge)) {
+      # The file may hold a history written by Save-PrtgSensorState; this cmdlet itself
+      # stores exactly one entry.
+      $newest = Get-PrtgNewestEntry -Entries $entries
+      # A cached $null is served like any other value unless -SkipNullCache asked for a retry.
+      if ($newest.Timestamp.ToUniversalTime() -ge ([DateTime]::UtcNow - $MaxAge) -and
+          -not ($SkipNullCache -and $null -eq $newest.Value)) {
         return $newest.Value
       }
     }
@@ -152,11 +172,17 @@ function Use-PrtgCachedResult {
     # Miss: fetch while still holding the lock, so waiting siblings hit the fresh entry.
     # A throwing block skips the save, keeping any stale entry for the next caller.
     $result = & $fetchBlock
-    [PSCustomObject]@{
-      Value     = $result
-      Timestamp = [DateTime]::UtcNow
-    } | Export-Clixml -LiteralPath $file -Depth 5 -Force
-    Write-Verbose "Use-PrtgCachedResult: refreshed cache '$Key' in '$file'."
+    if ($SkipNullCache -and $null -eq $result) {
+      Write-Verbose "Use-PrtgCachedResult: block returned `$null and -SkipNullCache is set; not caching '$Key'."
+    } else {
+      # Written atomically: a corrupt cache entry would send every sensor on the probe back to
+      # the source at once, which is the stampede this cmdlet exists to prevent.
+      Export-PrtgClixmlAtomic -LiteralPath $file -Depth $Depth -InputObject ([PSCustomObject]@{
+        Value     = $result
+        Timestamp = [DateTime]::UtcNow
+      })
+      Write-Verbose "Use-PrtgCachedResult: refreshed cache '$Key' in '$file'."
+    }
 
     return $result
   }

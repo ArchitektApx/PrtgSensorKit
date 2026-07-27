@@ -25,7 +25,10 @@ function New-PrtgChannel {
     The display name of the channel in PRTG.
 
   .PARAMETER Value
-    The numeric value for the channel. Supports int, int64, float, double, or decimal.
+    The numeric value for the channel. Accepts any built-in numeric type: byte, sbyte, int16,
+    uint16, int32 (int), uint32, int64, uint64, single (float), double, and decimal - so CIM and
+    WMI UInt64 values can be passed without a cast. Integers keep their exact value in the JSON;
+    -Float converts to double and is lossy above 2^53.
 
   .PARAMETER Unit
     The unit type for the channel. Determines formatting and available dynamic parameters.
@@ -149,13 +152,7 @@ function New-PrtgChannel {
     $Channel,
 
     [Parameter(Mandatory = $true)]
-    [ValidateScript({
-      $_ -is [int] -or
-      $_ -is [int64] -or
-      $_ -is [float] -or 
-      $_ -is [double] -or 
-      $_ -is [decimal]
-    })]
+    [ValidateScript({ Test-PrtgNumeric $_ })]
     $Value,
 
     [Parameter(Mandatory = $false)]
@@ -204,47 +201,19 @@ function New-PrtgChannel {
     $ShowTable = $true,
       
     [Parameter(Mandatory = $false)]
-    [ValidateScript({
-      $_ -is [int] -or
-      $_ -is [int64] -or
-      $_ -is [float] -or 
-      $_ -is [double] -or 
-      $_ -is [decimal]	-or
-      $_ -is [string]
-    })]
+    [ValidateScript({ (Test-PrtgNumeric $_) -or $_ -is [string] })]
     $LimitMaxError,
       
     [Parameter(Mandatory = $false)]
-    [ValidateScript({
-      $_ -is [int] -or
-      $_ -is [int64] -or
-      $_ -is [float] -or 
-      $_ -is [double] -or 
-      $_ -is [decimal] -or
-      $_ -is [string]
-    })]
+    [ValidateScript({ (Test-PrtgNumeric $_) -or $_ -is [string] })]
     $LimitMaxWarning,
       
     [Parameter(Mandatory = $false)]
-    [ValidateScript({
-      $_ -is [int] -or
-      $_ -is [int64] -or
-      $_ -is [float] -or 
-      $_ -is [double] -or 
-      $_ -is [decimal] -or 
-      $_ -is [string]
-    })]
+    [ValidateScript({ (Test-PrtgNumeric $_) -or $_ -is [string] })]
     $LimitMinWarning,
       
     [Parameter(Mandatory = $false)]
-    [ValidateScript({
-      $_ -is [int] -or
-      $_ -is [int64] -or
-      $_ -is [float] -or 
-      $_ -is [double] -or 
-      $_ -is [decimal] -or 
-      $_ -is [string]
-    })]
+    [ValidateScript({ (Test-PrtgNumeric $_) -or $_ -is [string] })]
     $LimitMinError,
       
     [Parameter(Mandatory = $false)]
@@ -364,8 +333,8 @@ function New-PrtgChannel {
       $PrtgChannel | Add-Member -Name 'Float' -Type NoteProperty -Value 1
     }
 
-    $PSBoundParameters.GetEnumerator() | 
-      Where-Object { $_.Key -notin 'Channel', 'Value', 'Unit', 'Float', 'ShowChart', 'ShowTable' } |
+    $PSBoundParameters.GetEnumerator() |
+      Where-Object { $_.Key -notin $script:PrtgChannelExcludedParameters } |
       ForEach-Object { 
         $TypeConvertedValue = switch ($_.Value) {
           { $_ -is [switch] } { [int][bool]$_ }

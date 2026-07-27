@@ -1,9 +1,12 @@
 param(
-  [ValidateSet('build', 'test', 'lint', 'fuzz', 'install_dev_requirements', 'prepare_release')]
+  [ValidateSet('build', 'test', 'lint', 'fuzz', 'coverage', 'install_dev_requirements', 'prepare_release')]
   [string]$Task = 'build',
 
   # Only used by prepare_release: ./tasks.ps1 prepare_release 1.1.0
-  [string]$Version
+  [string]$Version,
+
+  # Only used by coverage: fail the run when coverage drops below this percentage.
+  [double]$MinimumPercent = 0
 )
 
 switch ($Task) {
@@ -21,6 +24,10 @@ switch ($Task) {
   }
   'fuzz' {
     . $(Join-Path "Tools" "fuzz.ps1") 4>$null 3>$null
+    break
+  }
+  'coverage' {
+    . $(Join-Path "Tools" "coverage.ps1") -MinimumPercent $MinimumPercent
     break
   }
   'install_dev_requirements' {

@@ -103,11 +103,10 @@ function Save-PrtgSensorState {
     [switch]$Force
   )
 
-  $folder = Get-PrtgStatePath -Path $Path
-  $file = Join-Path $folder "$Key.clixml"
-  $lockFile = "$file.lock"
+  $state = Get-PrtgStateFile -Key $Key -Path $Path
+  $file = $state.File
 
-  Invoke-PrtgStateLock -LockFile $lockFile -TimeoutSeconds $TimeoutSeconds -Force:$Force -ScriptBlock {
+  Invoke-PrtgStateLock -LockFile $state.LockFile -TimeoutSeconds $TimeoutSeconds -Force:$Force -ScriptBlock {
     $loaded = Get-PrtgStateEntry -File $file
     if ($loaded.Unreadable) {
       Write-Warning "Save-PrtgSensorState: existing state file '$file' is unreadable and will be replaced. ($($loaded.UnreadableMessage))"
@@ -126,7 +125,7 @@ function Save-PrtgSensorState {
       $entries = @($entries | Select-Object -Last $MaxEntries)
     }
 
-    $entries | Export-Clixml -LiteralPath $file -Depth $Depth -Force
+    Export-PrtgClixmlAtomic -InputObject $entries -LiteralPath $file -Depth $Depth
     Write-Verbose "Saved state '$Key' to '$file' ($($entries.Count) entries)."
   }
 }

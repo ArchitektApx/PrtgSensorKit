@@ -3,12 +3,33 @@ BeforeAll {
   Import-BuiltPrtgModule
 }
 
-$onWindows = ($PSVersionTable.PSEdition -eq 'Desktop') -or $IsWindows
+# Dot-sourced at top level as well as in BeforeAll: -Skip: is evaluated at DISCOVERY time.
+. $PSScriptRoot/_TestHelpers.ps1
+$onWindows = Test-OnWindowsHost
 
 Describe 'Private helpers' {
   It 'Test-PrtgWindows reflects the host edition' {
     $expected = ($PSVersionTable.PSEdition -eq 'Desktop') -or [bool]$IsWindows
     (InModuleScope PrtgSensorKit { Test-PrtgWindows }) | Should -Be $expected
+  }
+
+  It 'Get-PrtgNewestEntry returns $null for an empty history' {
+    # The callers only reach it with entries, so this guard has no coverage through them.
+    InModuleScope PrtgSensorKit {
+      Get-PrtgNewestEntry -Entries @() | Should -BeNullOrEmpty
+      Get-PrtgNewestEntry -Entries $null | Should -BeNullOrEmpty
+    }
+  }
+
+  It 'Get-PrtgNewestEntry breaks a timestamp tie in favour of the later entry' {
+    InModuleScope PrtgSensorKit {
+      $ts = [DateTime]::UtcNow
+      $newest = Get-PrtgNewestEntry -Entries @(
+        [PSCustomObject]@{ Value = 'older'; Timestamp = $ts }
+        [PSCustomObject]@{ Value = 'newer'; Timestamp = $ts }
+      )
+      $newest.Value | Should -Be 'newer'
+    }
   }
 
   It 'Format-PrtgMessage strips # and truncates to 2000' {
@@ -28,6 +49,29 @@ Describe 'Restart-InPwsh when pwsh is absent (Windows)' -Tag 'Windows' -Skip:(-n
     InModuleScope PrtgSensorKit {
       Mock Get-Command -MockWith { $null } -ParameterFilter { $Name -eq 'pwsh' }
       Restart-InPwsh -WarningAction SilentlyContinue | Should -BeNullOrEmpty
+    }
+  }
+}
+
+Describe 'Test-PrtgNumeric' {
+  It 'is true for every built-in numeric type' {
+    InModuleScope PrtgSensorKit {
+      foreach ($v in @([byte]1, [sbyte]1, [int16]1, [uint16]1, [int32]1, [uint32]1,
+                       [int64]1, [uint64]1, [single]1, [double]1, [decimal]1)) {
+        Test-PrtgNumeric $v | Should -BeTrue -Because "$($v.GetType().Name) is numeric"
+      }
+    }
+  }
+
+  It 'is false for non-numeric value types and for null' {
+    InModuleScope PrtgSensorKit {
+      Test-PrtgNumeric $true              | Should -BeFalse
+      Test-PrtgNumeric 'x'                | Should -BeFalse
+      Test-PrtgNumeric ([datetime]::Now)  | Should -BeFalse
+      Test-PrtgNumeric ([timespan]::Zero) | Should -BeFalse
+      Test-PrtgNumeric ([guid]::Empty)    | Should -BeFalse
+      Test-PrtgNumeric ([char]'a')        | Should -BeFalse
+      Test-PrtgNumeric $null              | Should -BeFalse
     }
   }
 }

@@ -28,6 +28,20 @@ Describe 'Write-PrtgError' {
     ($errs | Write-PrtgError | Measure-Object).Count | Should -Be 1
   }
 
+  It 'renders unknown invocation details instead of crashing (1.2.1 regression)' {
+    # An ErrorRecord built by hand, as opposed to one from a throw, has a $null InvocationInfo.
+    # Formatting one used to throw a NullReferenceException instead of emitting the response.
+    $rec = [System.Management.Automation.ErrorRecord]::new(
+      [System.InvalidOperationException]::new('handmade failure'),
+      'PSK.HandBuilt',
+      [System.Management.Automation.ErrorCategory]::NotSpecified,
+      $null)
+    $rec.InvocationInfo | Should -BeNullOrEmpty
+    $obj = ($rec | Write-PrtgError) | ConvertFrom-Json
+    $obj.prtg.error | Should -Be 1
+    $obj.prtg.text  | Should -Be 'line:unknown char:unknown --- message: handmade failure --- line: '
+  }
+
   It 'keeps the exact line/char/message/source rendering (Format-PrtgErrorText regression)' {
     $rec = try { throw 'zap' } catch { $_ }
     $obj = ($rec | Write-PrtgError) | ConvertFrom-Json

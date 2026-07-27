@@ -15,6 +15,15 @@ function Import-BuiltPrtgModule {
   Import-Module (Get-BuiltPrtgManifest) -Force
 }
 
+# Single definition of the host check used by -Skip: expressions, which Pester evaluates at
+# DISCOVERY time - so this must work before any BeforeAll runs, and on Windows PowerShell 5.1
+# where $IsWindows does not exist.
+function Test-OnWindowsHost {
+  [OutputType([bool])]
+  param()
+  ($PSVersionTable.PSEdition -eq 'Desktop') -or [bool]$IsWindows
+}
+
 # Opens the exclusive lock handle the way the module does, to simulate a concurrent run.
 # Shared by the state and cache test files so both always test the same lock semantics.
 function Get-TestLockHandle([string]$LockFile) {

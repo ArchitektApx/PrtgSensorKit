@@ -66,6 +66,11 @@ Get-ChildItem .\Tests\Integration -Recurse -Filter *.ps1 |
 | working/17-logging-lifecycle.ps1 | working | Up; each scan adds one run log file under `%ProgramData%\PrtgSensorKit\Logs\` | all Pass |
 | working/18-cached-result-shared.ps1 | working | Up; deploy 2+ sensors: all show the SAME `Collection Age` sawtooth | all Pass |
 | malformed/19-encoding-no-bom.ps1 | malformed | Up, but channel name/message show mojibake under 5.1 (no parse error!) | PSK0011 Warning |
+| working/20-stored-secret.ps1 | working | Up; channel `Secret Length` = 11, message names the sensor account | PSK0013 Info |
+| failing/21-secret-wrong-account.ps1 | failing | Down; text starts `Failed to decrypt secret` and names the running account | PSK0013 Info |
+| failing/22-nonterminating-error.ps1 | failing | Down; text contains `Cannot find path` (was Up before 1.3.0) | all Pass |
+| working/23-error-opt-out.ps1 | working | Up; `Optional Present` = 0, `Required` = 1 | all Pass |
+| working/24-cim-uint64-raw.ps1 | working | Up; byte channels per volume, plus `Large Value` = 9007199254740993 | all Pass |
 
 Notes:
 
@@ -84,6 +89,37 @@ Notes:
 - 18 must be deployed as at least TWO sensors (same script) to demonstrate the shared
   cache: identical `Collection Age` on all of them, one 2-second collection per
   interval machine-wide. Writes to `%ProgramData%\PrtgSensorKit\State`.
+- 22 and 23 are a PAIR covering the only BREAKING change in 1.3.0: a non-terminating
+  error inside the block now fails the sensor. 22 shows the new failure, 23 shows the
+  supported opt-outs. If you still have a pre-1.3.0 module available, run 22 against it
+  first: the identical script shows **Up** with a bogus `Stale` channel, which is the
+  silent-failure behavior the release fixes. Neither needs setup or network.
+  Note that setting `$ErrorActionPreference` at the top of a sensor SCRIPT is not an
+  opt-out - PRTG runs sensors as `powershell.exe -f`, where the script's top-level scope
+  is the global scope the wrapper overrides. It has to be inside the block, or per
+  command via `-ErrorAction`.
+- 24 passes raw CIM `UInt64` values with no cast, which pre-1.3.0 rejected outright. Its
+  `Large Value` channel is 2^53 + 1 (9007199254740993) specifically to see what PRTG's
+  own JSON parser does with an integer a double cannot hold. The module emits the exact
+  digits; if the PRTG UI shows ...992 that is PRTG rounding, not a module bug. Record
+  whichever you see - it establishes the practical ceiling for byte counters.
+- 20 and 21 are a PAIR covering the most common deployment mistake, and both need a
+  one-time secret saved by hand first (each script's comment block has the exact
+  commands). They are the only sensors whose outcome depends on WHICH Windows account
+  PRTG runs them as, so check the device's "Credentials for Windows Systems" before
+  deploying; the PRTG default is Local System.
+  - 20 expects the secret `IntegrationDemo` saved AS the sensor's own account (for Local
+    System, via `PsExec.exe -s -i powershell.exe`). It shows Up and its message echoes
+    the account that read the secret.
+  - 21 expects the secret `IntegrationWrongAccount` saved as some OTHER account, so the
+    decrypt deliberately fails. It must show Down with a readable message, not a parse
+    error - that is the point: a wrong-account secret fails CLEANLY, and the error names
+    the account the sensor actually runs as, which is what you re-save under.
+  - Both write to `%ProgramData%\PrtgSensorKit\Secrets`. The store folder is shared by
+    every sensor account; each secret file stays readable only by the account that saved
+    it. Clean up afterwards by deleting the two `.clixml` files.
+  - The Doctor cannot detect the account mismatch statically. It only raises PSK0013 Info
+    to remind you the binding exists, which is why this pair has to be validated by hand.
 - 19 is a byte-exact fixture: BOM-less UTF-8 with umlauts. Do not open-and-save it with
   an editor that adds a BOM or converts the encoding; copy it to the probe as-is. Its
   breakage is wrong DISPLAY (mojibake), not a parse error - unlike the other malformed
