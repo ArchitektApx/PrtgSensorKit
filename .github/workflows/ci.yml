@@ -23,6 +23,11 @@ jobs:
           # Windows PowerShell 5.1 (Desktop) is the real PRTG sensor runtime.
           - { os: windows-latest, host: powershell, name: 'win / WinPS 5.1',
               modulePath: '~\Documents\WindowsPowerShell\Modules' }
+          # 32-bit Windows PowerShell: PRTG runs a sensor in a 32-bit process unless the script
+          # relaunches itself, so this is a real sensor runtime. It also exercises WOW64
+          # filesystem redirection, which no 64-bit host reaches.
+          - { os: windows-latest, host: 'C:\Windows\SysWOW64\WindowsPowerShell\v1.0\powershell.exe',
+              name: 'win / WinPS 5.1 (x86)', modulePath: '~\Documents\WindowsPowerShell\Modules' }
           # PowerShell 7+ on Windows, Linux, and macOS for cross-edition coverage.
           - { os: windows-latest, host: pwsh, name: 'win / pwsh 7',
               modulePath: '~\Documents\PowerShell\Modules' }
