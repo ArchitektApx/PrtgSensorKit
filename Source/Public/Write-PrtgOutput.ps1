@@ -22,6 +22,6 @@ function Write-PrtgOutput {
   .LINK
     Set-PrtgMessage
   #>
-  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  Set-PrtgConsoleEncoding
   Write-Output ($script:OutputObject | ConvertTo-Json -Depth 10)
 }

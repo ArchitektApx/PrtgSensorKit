@@ -61,6 +61,6 @@ function Write-PrtgError {
     }
   }
 
-  [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+  Set-PrtgConsoleEncoding
   Write-Output ($ErrorOutput | ConvertTo-Json -Depth 10)
 }
