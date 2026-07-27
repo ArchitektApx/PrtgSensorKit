@@ -184,3 +184,83 @@ Describe 'Invoke-PrtgSensor -ForceModernTls' {
     [System.Net.ServicePointManager]::SecurityProtocol | Should -Be $before
   }
 }
+
+Describe 'Invoke-PrtgSensor error action' {
+  AfterEach { $global:ErrorActionPreference = 'Continue' }
+
+  It 'exposes $ErrorActionPreference = Stop to the block' {
+    $json = Invoke-PrtgSensor { Set-PrtgMessage "$ErrorActionPreference" } | ConvertFrom-Json
+    $json.prtg.text | Should -Be 'Stop'
+  }
+
+  It 'turns a non-terminating error inside the block into a PRTG error response' {
+    $json = Invoke-PrtgSensor {
+      Get-Item (Join-Path $TestDrive 'nope') | Out-Null
+      New-PrtgChannel -Channel 'A' -Value 1 | Add-PrtgChannel
+    } | ConvertFrom-Json
+    $json.prtg.error | Should -Be 1
+    $json.prtg.PSObject.Properties.Name | Should -Not -Contain 'result'
+  }
+
+  It 'lets the block opt out by assigning $ErrorActionPreference itself' {
+    # Pins the Examples/16 contract.
+    $json = Invoke-PrtgSensor {
+      $ErrorActionPreference = 'SilentlyContinue'
+      Get-Item (Join-Path $TestDrive 'nope') | Out-Null
+      New-PrtgChannel -Channel 'A' -Value 1 | Add-PrtgChannel
+    } 2>$null | ConvertFrom-Json
+    $json.prtg.result.Count | Should -Be 1
+    $json.prtg.result[0].Channel | Should -Be 'A'
+  }
+
+  It 'lets the block opt out per statement with -ErrorAction' {
+    $json = Invoke-PrtgSensor {
+      Get-Item (Join-Path $TestDrive 'nope') -ErrorAction SilentlyContinue | Out-Null
+      New-PrtgChannel -Channel 'A' -Value 1 | Add-PrtgChannel
+    } | ConvertFrom-Json
+    $json.prtg.result.Count | Should -Be 1
+  }
+
+  It 'restores the previous global $ErrorActionPreference on success' {
+    $global:ErrorActionPreference = 'Continue'
+    Invoke-PrtgSensor { Set-PrtgMessage 'ok' } | Out-Null
+    $global:ErrorActionPreference | Should -Be 'Continue'
+  }
+
+  It 'restores it after the block throws' {
+    $global:ErrorActionPreference = 'Continue'
+    Invoke-PrtgSensor { throw 'boom' } | Out-Null
+    $global:ErrorActionPreference | Should -Be 'Continue'
+  }
+
+  It 'restores it after a -DryRun rethrow' {
+    $global:ErrorActionPreference = 'Continue'
+    try { Invoke-PrtgSensor -DryRun { throw 'boom' } | Out-Null } catch { }
+    $global:ErrorActionPreference | Should -Be 'Continue'
+  }
+
+  It 'restores a non-default value rather than hardcoding Continue' {
+    $global:ErrorActionPreference = 'Ignore'
+    Invoke-PrtgSensor { Set-PrtgMessage 'ok' } | Out-Null
+    $global:ErrorActionPreference | Should -Be 'Ignore'
+  }
+
+  It 'still emits a response when an internal log write fails non-terminatingly' {
+    # Regression: 'Stop' is set on the GLOBAL preference for the user's block, and the module's
+    # own functions inherit it too. Left set for the whole cmdlet, a failed log write terminated
+    # before Write-PrtgOutput ever ran, so the sensor emitted nothing and PRTG saw a parse error.
+    Mock -CommandName Write-PrtgLog -ModuleName PrtgSensorKit -MockWith { Write-Error 'log target locked' }
+    $json = Invoke-PrtgSensor -EnableLogging {
+      New-PrtgChannel -Channel 'A' -Value 1 | Add-PrtgChannel
+    } 2>$null | ConvertFrom-Json
+    $json.prtg.result[0].Channel | Should -Be 'A'
+  }
+
+  It 'nests without leaking (inner call restores the outer Stop)' {
+    $json = Invoke-PrtgSensor {
+      Invoke-PrtgSensor { Set-PrtgMessage 'inner' } | Out-Null
+      Set-PrtgMessage "$ErrorActionPreference"
+    } | ConvertFrom-Json
+    $json.prtg.text | Should -Be 'Stop'
+  }
+}

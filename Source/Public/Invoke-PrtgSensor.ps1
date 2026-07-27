@@ -208,7 +208,12 @@ function Invoke-PrtgSensor {
   # lazily by the first Write-PrtgLog call - the lifecycle start line right below.
   $logRestore = $null
   if ($EnableLogging) {
-    $logRestore = @{ Directory = $script:PrtgLogDirectory; MaxLogs = $script:PrtgLogMaxLogs }
+    $logRestore = @{
+      Directory   = $script:PrtgLogDirectory
+      MaxLogs     = $script:PrtgLogMaxLogs
+      File        = $script:PrtgLogFile
+      RestoreFile = $false
+    }
     if ($PSBoundParameters.ContainsKey('LogPath')) {
       if (-not [System.IO.Path]::IsPathRooted($LogPath)) {
         # Relative paths anchor to the sensor script, not the CWD: PRTG starts sensors
@@ -220,8 +225,12 @@ function Invoke-PrtgSensor {
       $script:PrtgLogDirectory = $LogPath
       # An earlier Write-PrtgLog call may have pinned this process's run file to another
       # folder; honor the explicit -LogPath by starting a new run file there.
+      # Only this branch discards the run file, so only this branch may restore it. Restoring
+      # unconditionally would null the run file the call itself created, and the script's next
+      # Write-PrtgLog would start a SECOND file instead of appending to it.
       if ($script:PrtgLogFile -and (Split-Path -Parent $script:PrtgLogFile) -ne $LogPath) {
         $script:PrtgLogFile = $null
+        $logRestore.RestoreFile = $true
       }
     }
     if ($PSBoundParameters.ContainsKey('MaxLogs')) { $script:PrtgLogMaxLogs = $MaxLogs }
@@ -243,9 +252,19 @@ function Invoke-PrtgSensor {
     while ($true) {
       Clear-PrtgOutput
       try {
-        # Merge the information stream into success, then discard both so stray output from the
-        # user's code never reaches stdout. Terminating errors still propagate to the catch below.
-        & $ScriptBlock 6>&1 | Out-Null
+        # Must be the GLOBAL preference: the script block is bound to the caller's session
+        # state, so the function-scope assignment at the top is invisible to it. Scoped to
+        # this call only - under a global 'Stop' a failed log write inside this cmdlet's own
+        # code would terminate before the sensor response is ever emitted.
+        $eapRestore = $global:ErrorActionPreference
+        $global:ErrorActionPreference = 'Stop'
+        try {
+          # Merge the information stream into success, then discard both so stray output from the
+          # user's code never reaches stdout. Terminating errors still propagate to the catch below.
+          & $ScriptBlock 6>&1 | Out-Null
+        } finally {
+          $global:ErrorActionPreference = $eapRestore
+        }
         $lastError = $null
         break
       } catch {
@@ -309,6 +328,7 @@ function Invoke-PrtgSensor {
     if ($null -ne $logRestore) {
       $script:PrtgLogDirectory = $logRestore.Directory
       $script:PrtgLogMaxLogs = $logRestore.MaxLogs
+      if ($logRestore.RestoreFile) { $script:PrtgLogFile = $logRestore.File }
     }
   }
 }

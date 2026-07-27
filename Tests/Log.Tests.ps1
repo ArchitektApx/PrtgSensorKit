@@ -119,6 +119,33 @@ Describe 'Invoke-PrtgSensor -EnableLogging lifecycle' {
     $content | Should -BeLike "*sensor ok: 1 channels, message 'all good',*ms*"
   }
 
+  It 'keeps the run file it created, so later Write-PrtgLog calls append to it' {
+    # Regression: the run file was captured before the call created it and restored
+    # unconditionally, so a later Write-PrtgLog in the same script started a SECOND run file.
+    # Only -LogPath discards the run file, so only -LogPath may restore it.
+    InModuleScope PrtgSensorKit -Parameters @{ Dir = $dir } {
+      param($Dir)
+      $script:PrtgLogDirectory = $Dir
+      [void] (Invoke-PrtgSensor -EnableLogging { Set-PrtgMessage 'ok' })
+      $script:PrtgLogFile | Should -Not -BeNullOrEmpty
+      Write-PrtgLog 'a later line in the same script'
+      @(Get-ChildItem -LiteralPath $Dir -Filter '*.log').Count | Should -Be 1
+      (Get-Content -LiteralPath $script:PrtgLogFile -Raw) | Should -BeLike '*a later line in the same script*'
+    }
+  }
+
+  It 'restores the previous run file when -LogPath sent this call elsewhere' {
+    $other = Join-Path $TestDrive "logs-other-$(Get-Random)"
+    InModuleScope PrtgSensorKit -Parameters @{ Dir = $dir; Other = $other } {
+      param($Dir, $Other)
+      $script:PrtgLogDirectory = $Dir
+      Write-PrtgLog 'first line, pins the run file'
+      $pinned = $script:PrtgLogFile
+      [void] (Invoke-PrtgSensor -EnableLogging -LogPath $Other { Set-PrtgMessage 'ok' })
+      $script:PrtgLogFile | Should -Be $pinned
+    }
+  }
+
   It 'logs full error details on final failure' {
     [void] (Invoke-PrtgSensor -EnableLogging -LogPath $dir { throw 'kaboom' })
     $content = Get-Content -LiteralPath @(Get-ChildItem -LiteralPath $dir -Filter '*.log')[0].FullName -Raw
@@ -219,5 +246,53 @@ Describe 'Write-PrtgLog edge paths' {
     $run = @(Get-ChildItem -LiteralPath $dir -Filter 'Log.Tests_*.log')
     $run.Count | Should -Be 1
     Get-Content -LiteralPath $run[0].FullName -Raw | Should -BeLike '*sensor ok*'
+  }
+}
+
+Describe 'Invoke-PrtgSensor -LogPath run file restore' {
+  BeforeEach { Reset-PrtgLogState }
+
+  It 'restores the run file after the call so later lines go back to the original folder' {
+    $a = Join-Path $TestDrive "log-a-$(Get-Random)"
+    $b = Join-Path $TestDrive "log-b-$(Get-Random)"
+
+    InModuleScope PrtgSensorKit -Parameters @{ Dir = $a } { param($Dir) $script:PrtgLogDirectory = $Dir }
+    Write-PrtgLog 'before'
+    [void] (Invoke-PrtgSensor -EnableLogging -LogPath $b { Set-PrtgMessage 'ok' })
+    Write-PrtgLog 'after'
+
+    $aFiles = @(Get-ChildItem -LiteralPath $a -Filter '*.log')
+    $bFiles = @(Get-ChildItem -LiteralPath $b -Filter '*.log')
+    $aFiles.Count | Should -Be 1
+    $bFiles.Count | Should -Be 1
+
+    $aContent = Get-Content -LiteralPath $aFiles[0].FullName -Raw
+    $aContent | Should -BeLike '*before*'
+    $aContent | Should -BeLike '*after*'
+
+    $bContent = Get-Content -LiteralPath $bFiles[0].FullName -Raw
+    $bContent | Should -BeLike '*sensor start*'
+    $bContent | Should -Not -BeLike '*after*'
+    $bContent | Should -Not -BeLike '*before*'
+  }
+
+  It 'restores the run file even when the block throws' {
+    $a = Join-Path $TestDrive "log-a2-$(Get-Random)"
+    $b = Join-Path $TestDrive "log-b2-$(Get-Random)"
+    InModuleScope PrtgSensorKit -Parameters @{ Dir = $a } { param($Dir) $script:PrtgLogDirectory = $Dir }
+    Write-PrtgLog 'before'
+    [void] (Invoke-PrtgSensor -EnableLogging -LogPath $b { throw 'boom' })
+    Write-PrtgLog 'after'
+    (Get-Content -LiteralPath @(Get-ChildItem -LiteralPath $a -Filter '*.log')[0].FullName -Raw) |
+      Should -BeLike '*after*'
+  }
+
+  It 'still restores the directory and retention settings' {
+    $a = Join-Path $TestDrive "log-a3-$(Get-Random)"
+    $b = Join-Path $TestDrive "log-b3-$(Get-Random)"
+    InModuleScope PrtgSensorKit -Parameters @{ Dir = $a } { param($Dir) $script:PrtgLogDirectory = $Dir }
+    [void] (Invoke-PrtgSensor -EnableLogging -LogPath $b -MaxLogs 3 { Set-PrtgMessage 'ok' })
+    InModuleScope PrtgSensorKit { $script:PrtgLogDirectory } | Should -Be $a
+    InModuleScope PrtgSensorKit { $script:PrtgLogMaxLogs } | Should -Be 30
   }
 }
