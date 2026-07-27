@@ -95,6 +95,88 @@ Describe 'New-PrtgChannel' {
   }
 }
 
+Describe 'New-PrtgChannel numeric value types' {
+  It 'accepts <name> and keeps the value intact' -TestCases @(
+    @{ Name = 'byte';    Value = [byte]5 }
+    @{ Name = 'sbyte';   Value = [sbyte]5 }
+    @{ Name = 'int16';   Value = [int16]5 }
+    @{ Name = 'uint16';  Value = [uint16]5 }
+    @{ Name = 'int32';   Value = [int32]5 }
+    @{ Name = 'uint32';  Value = [uint32]5 }
+    @{ Name = 'int64';   Value = [int64]5 }
+    @{ Name = 'uint64';  Value = [uint64]5 }
+    @{ Name = 'single';  Value = [single]5 }
+    @{ Name = 'double';  Value = [double]5 }
+    @{ Name = 'decimal'; Value = [decimal]5 }
+  ) {
+    param($Name, $Value)
+    $c = New-PrtgChannel -Channel 'X' -Value $Value
+    $c.Value | Should -Be 5
+  }
+
+  It 'keeps unsigned and small integers as integers (no Float flag)' {
+    foreach ($v in @([byte]5, [uint16]5, [uint32]5, [uint64]5, [int16]5)) {
+      $c = New-PrtgChannel -Channel 'X' -Value $v
+      $c.PSObject.Properties.Name | Should -Not -Contain 'Float'
+    }
+  }
+
+  It 'survives the JSON round-trip for a uint64 above 2^53' {
+    Clear-PrtgOutput
+    New-PrtgChannel -Channel 'Big' -Value ([uint64]18446744073709551615) | Add-PrtgChannel
+    Write-PrtgOutput | Should -Match '18446744073709551615'
+  }
+
+  It 'rejects <name> for -Value' -TestCases @(
+    @{ Name = 'string';   Value = 'nope' }
+    @{ Name = 'bool';     Value = $true }
+    @{ Name = 'datetime'; Value = [datetime]'2026-01-01' }
+  ) {
+    param($Name, $Value)
+    { New-PrtgChannel -Channel 'X' -Value $Value -ErrorAction Stop } | Should -Throw
+  }
+
+  It 'rejects $null for -Value' {
+    { New-PrtgChannel -Channel 'X' -Value $null -ErrorAction Stop } | Should -Throw
+  }
+
+  It 'accepts the widened numeric set on the Limit parameters' {
+    $c = New-PrtgChannel -Channel 'X' -Value 1 -LimitMode $true `
+      -LimitMaxError ([uint64]90) -LimitMaxWarning ([byte]80) `
+      -LimitMinWarning ([int16]20) -LimitMinError ([single]10)
+    $c.LimitMaxError   | Should -Be 90
+    $c.LimitMaxWarning | Should -Be 80
+    $c.LimitMinWarning | Should -Be 20
+    $c.LimitMinError   | Should -Be 10
+  }
+
+  It 'still accepts strings on the Limit parameters' {
+    $c = New-PrtgChannel -Channel 'X' -Value 1 -LimitMode $true -LimitMinError '5'
+    $c.LimitMinError | Should -Be '5'
+  }
+
+  It 'still rejects a non-numeric, non-string limit' {
+    { New-PrtgChannel -Channel 'X' -Value 1 -LimitMaxError $true -ErrorAction Stop } | Should -Throw
+  }
+}
+
+Describe 'New-PrtgChannel common parameters' {
+  It 'does not emit common parameters as channel properties' {
+    $c = New-PrtgChannel -Channel 'A' -Value 1 -Verbose -ErrorAction SilentlyContinue `
+      -WarningAction SilentlyContinue -OutVariable ov 4>$null
+    ($c.PSObject.Properties.Name | Sort-Object) -join ',' |
+      Should -Be 'Channel,ShowChart,ShowTable,Unit,Value'
+  }
+
+  It 'still emits real optional parameters' {
+    # -Warning is a real New-PrtgChannel parameter, not a common one.
+    $c = New-PrtgChannel -Channel 'A' -Value 1 -Mode Difference -ValueLookup 'x' -Warning
+    $c.Mode        | Should -Be 'Difference'
+    $c.ValueLookup | Should -Be 'x'
+    $c.Warning     | Should -Be 1
+  }
+}
+
 Describe 'Add-PrtgChannel' {
   BeforeEach { Clear-PrtgOutput }
 
