@@ -3,10 +3,11 @@ BeforeAll {
   Import-BuiltPrtgModule
 }
 
-# -Skip must resolve at DISCOVERY time and on Windows PowerShell 5.1 (where $IsWindows is undefined).
+# -Skip resolves at DISCOVERY time, before any BeforeAll, so the helpers are dot-sourced here too.
+. $PSScriptRoot/_TestHelpers.ps1
 $is64      = [Environment]::Is64BitProcess
 $isCore    = $PSVersionTable.PSEdition -eq 'Core'
-$onWindows = ($PSVersionTable.PSEdition -eq 'Desktop') -or $IsWindows
+$onWindows = Test-OnWindowsHost
 
 Describe 'Restart-* no-op safety' {
   It 'Restart-As64BitPowershell is a no-op in a 64-bit process' -Skip:(-not $is64) {
