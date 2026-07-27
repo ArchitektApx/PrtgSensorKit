@@ -3,6 +3,10 @@ BeforeAll {
   Import-BuiltPrtgModule
 }
 
+# Dot-sourced at top level as well as in BeforeAll: -Skip: is evaluated at DISCOVERY time.
+. $PSScriptRoot/_TestHelpers.ps1
+$onWindows = Test-OnWindowsHost
+
 Describe 'Save/Get-PrtgSensorState round-trip' {
   BeforeEach { $dir = Join-Path $TestDrive "state-$(Get-Random)" }
 
@@ -269,9 +273,9 @@ Describe 'Sensor state coverage gaps' {
     Test-Path -LiteralPath $file | Should -BeFalse
   }
 
-  It 'fails fast with the access-denied wording when the lock folder is not writable' -Skip:($PSVersionTable.PSEdition -eq 'Desktop' -or [bool]$IsWindows) {
-    # Unix only: a read-only folder yields UnauthorizedAccessException on lock creation,
-    # which must NOT be retried until the timeout (ACL denial is not transient).
+  It 'fails fast with the access-denied wording when the lock folder is not writable (unix)' -Skip:$onWindows {
+    # A read-only folder yields UnauthorizedAccessException on lock creation, which must NOT be
+    # retried until the timeout (ACL denial is not transient).
     $dir = Join-Path $TestDrive "readonly-$(Get-Random)"
     [void] (New-Item -ItemType Directory -Path $dir)
     chmod 555 $dir
@@ -280,6 +284,28 @@ Describe 'Sensor state coverage gaps' {
         Should -Throw '*Access denied*'
     } finally {
       chmod 755 $dir
+    }
+  }
+
+  It 'fails fast with the access-denied wording when the lock folder is not writable (windows)' -Tag 'Windows' -Skip:(-not $onWindows) {
+    # Same contract as the unix case, via a Deny ACE. Only CreateFiles is denied: the owner keeps
+    # ChangePermissions, so the finally can always remove the ACE again and TestDrive stays
+    # deletable. Denying more (or denying Delete) can strand the folder.
+    $dir = Join-Path $TestDrive "denied-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $dir)
+    $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
+    $deny = [System.Security.AccessControl.FileSystemAccessRule]::new(
+      $me, 'CreateFiles', 'ContainerInherit,ObjectInherit', 'None', 'Deny')
+    $acl = Get-Acl -LiteralPath $dir
+    $acl.AddAccessRule($deny)
+    Set-Acl -LiteralPath $dir -AclObject $acl
+    try {
+      { Save-PrtgSensorState -Key 'denied' -Value 1 -Path $dir -TimeoutSeconds 30 } |
+        Should -Throw '*Access denied*'
+    } finally {
+      $restore = Get-Acl -LiteralPath $dir
+      [void]$restore.RemoveAccessRule($deny)
+      Set-Acl -LiteralPath $dir -AclObject $restore
     }
   }
 }
@@ -300,5 +326,128 @@ Describe 'Timestamp tie-breaking' {
 
   It '-Latest returns the last-appended entry when timestamps tie' {
     Get-PrtgSensorState -Key 'tie' -Path $dir -Latest | Should -Be 'newer'
+  }
+}
+
+Describe 'Get-PrtgSensorState -Latest null handling' {
+  BeforeEach { $dir = Join-Path $TestDrive "statenull-$(Get-Random)" }
+
+  It '-Latest falls back to -Default when the newest stored value is null' {
+    Save-PrtgSensorState -Key 'k' -Value $null -Path $dir
+    Get-PrtgSensorState -Key 'k' -Path $dir -Latest -Default 0 | Should -Be 0
+  }
+
+  It '-Latest returns $null when the value is null and no -Default was given' {
+    Save-PrtgSensorState -Key 'k' -Value $null -Path $dir
+    Get-PrtgSensorState -Key 'k' -Path $dir -Latest | Should -BeNullOrEmpty
+  }
+
+  It '-Latest still returns a stored zero' {
+    # 0 must not trigger the fallback.
+    Save-PrtgSensorState -Key 'z' -Value 0 -Path $dir
+    Get-PrtgSensorState -Key 'z' -Path $dir -Latest -Default 99 | Should -Be 0
+  }
+
+  It '-Latest still returns a stored empty string' {
+    Save-PrtgSensorState -Key 'e' -Value '' -Path $dir
+    Get-PrtgSensorState -Key 'e' -Path $dir -Latest -Default 'fallback' | Should -BeExactly ''
+  }
+
+  It '-Latest still returns a stored $false' {
+    Save-PrtgSensorState -Key 'b' -Value $false -Path $dir
+    Get-PrtgSensorState -Key 'b' -Path $dir -Latest -Default $true | Should -BeFalse
+  }
+
+  It 'falls back to -Default when the newest of several entries is null' {
+    Save-PrtgSensorState -Key 'mix' -Value 5 -Path $dir
+    Start-Sleep -Milliseconds 20
+    Save-PrtgSensorState -Key 'mix' -Value $null -Path $dir
+    Get-PrtgSensorState -Key 'mix' -Path $dir -Latest -Default 0 | Should -Be 0
+  }
+}
+
+Describe 'State writes are atomic' {
+  BeforeEach { $dir = Join-Path $TestDrive "atomic-$(Get-Random)" }
+
+  It 'keeps the whole history when a save fails part-way' {
+    # Export-Clixml truncates before it writes, so writing straight to the state file would
+    # destroy the entire entry history - the one thing a delta counter cannot reconstruct.
+    Save-PrtgSensorState -Key 'hist' -Value 'first' -Path $dir
+    Save-PrtgSensorState -Key 'hist' -Value 'second' -Path $dir
+    Mock -CommandName Export-Clixml -ModuleName PrtgSensorKit -MockWith { throw 'simulated write failure' }
+    { Save-PrtgSensorState -Key 'hist' -Value 'third' -Path $dir -ErrorAction Stop } | Should -Throw
+    @(Get-PrtgSensorState -Key 'hist' -Path $dir).Value | Should -Be @('second', 'first')
+  }
+
+  It 'keeps the whole history when a prune fails part-way' {
+    Save-PrtgSensorState -Key 'prune' -Value 'kept' -Path $dir
+    Mock -CommandName Export-Clixml -ModuleName PrtgSensorKit -MockWith { throw 'simulated write failure' }
+    { Clear-PrtgSensorState -Key 'prune' -MaxAge (New-TimeSpan -Hours 1) -Path $dir -ErrorAction Stop } |
+      Should -Throw
+    @(Get-PrtgSensorState -Key 'prune' -Path $dir).Value | Should -Be 'kept'
+  }
+
+  It 'leaves no temp files behind on a successful save' {
+    Save-PrtgSensorState -Key 'clean' -Value 1 -Path $dir
+    @(Get-ChildItem -LiteralPath $dir -Filter '*.tmp') | Should -BeNullOrEmpty
+  }
+}
+
+Describe 'Partially malformed state and cache files' {
+  BeforeEach { $dir = Join-Path $TestDrive "partial-$(Get-Random)" }
+
+  It 'warns about malformed entries but still returns the valid ones' {
+    # A READABLE file whose entry list is partly corrupt, as opposed to an unreadable file.
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    @(
+      [PSCustomObject]@{ Value = 'good'; Timestamp = [DateTime]::UtcNow }
+      [PSCustomObject]@{ Value = 'no timestamp property' }
+      'not an entry object at all'
+    ) | Export-Clixml -LiteralPath (Join-Path $dir 'partial.clixml') -Depth 5
+
+    $value = Get-PrtgSensorState -Key 'partial' -Path $dir -Latest -WarningVariable warnings 3>$null
+    $value | Should -Be 'good'
+    ($warnings -join ' ') | Should -BeLike '*malformed entries*'
+  }
+
+  It 'warns about malformed entries when saving' {
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    @(
+      [PSCustomObject]@{ Value = 'good'; Timestamp = [DateTime]::UtcNow }
+      [PSCustomObject]@{ Value = 'no timestamp property' }
+    ) | Export-Clixml -LiteralPath (Join-Path $dir 'partialsave.clixml') -Depth 5
+
+    Save-PrtgSensorState -Key 'partialsave' -Value 'new' -Path $dir -WarningVariable warnings 3>$null
+    ($warnings -join ' ') | Should -BeLike '*malformed entries*'
+    # The malformed entry is dropped, the valid one and the new one survive.
+    @(Get-PrtgSensorState -Key 'partialsave' -Path $dir).Count | Should -Be 2
+  }
+
+  It 'warns about malformed entries when pruning with -MaxAge' {
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    @(
+      [PSCustomObject]@{ Value = 'fresh'; Timestamp = [DateTime]::UtcNow }
+      [PSCustomObject]@{ Value = 'no timestamp property' }
+    ) | Export-Clixml -LiteralPath (Join-Path $dir 'partialclear.clixml') -Depth 5
+
+    Clear-PrtgSensorState -Key 'partialclear' -MaxAge (New-TimeSpan -Hours 1) -Path $dir `
+      -WarningVariable warnings 3>$null
+    ($warnings -join ' ') | Should -BeLike '*malformed entries*'
+    Get-PrtgSensorState -Key 'partialclear' -Path $dir -Latest | Should -Be 'fresh'
+  }
+
+  It 'warns about malformed cache entries but still serves a fresh one' {
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    @(
+      [PSCustomObject]@{ Value = 'cached'; Timestamp = [DateTime]::UtcNow }
+      [PSCustomObject]@{ Value = 'no timestamp property' }
+    ) | Export-Clixml -LiteralPath (Join-Path $dir 'partialcache.clixml') -Depth 5
+
+    $counter = @{ n = 0 }
+    $value = Use-PrtgCachedResult -Key 'partialcache' -MaxAge (New-TimeSpan -Minutes 5) -Path $dir `
+      -WarningVariable warnings 3>$null { $counter.n++; 'refetched' }
+    $value | Should -Be 'cached'
+    $counter.n | Should -Be 0
+    ($warnings -join ' ') | Should -BeLike '*malformed entries*'
   }
 }
