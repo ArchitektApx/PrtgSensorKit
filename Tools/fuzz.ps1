@@ -10,6 +10,14 @@
 #   E) the Invoke-PrtgSensor wrapper - fed script blocks that throw wild payloads, to check
 #      the retry/-DryRun/-EnableLogging orchestration never lets an error through unhandled.
 #   F) Write-PrtgLog - verifies its documented "never throws" contract under adversarial input.
+#
+# Runs against the BUILT module in Dist/ (build first). Every failure is written to
+# Tools/fuzz-failures/ as a repro artifact, and the seed is printed so a run can be replayed.
+#
+# Usage (from the repo root):
+#   ./tasks.ps1 fuzz
+#   pwsh -File Tools/fuzz.ps1 [-Iterations 3000] [-Seed 12345]
+
 param(
   [int]$Iterations = 3000,
   [int]$Seed = (Get-Random)

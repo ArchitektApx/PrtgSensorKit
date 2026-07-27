@@ -1,4 +1,11 @@
-# Clean Dist directory
+# Builds the module from Source/ into Dist/ with ModuleBuilder, clearing the previous build
+# first. The tests, the fuzzer, and the deploy script all import the BUILT module, so this has
+# to run before any of them.
+#
+# Usage (from the repo root):
+#   ./tasks.ps1 build
+#   pwsh -File Tools/build.ps1
+
 Write-Host "--------------------------------"
 Write-Host "Cleaning Dist directory..."
 Write-Host "--------------------------------"
@@ -7,8 +14,6 @@ if (Test-Path -Path "Dist") {
 }
 Write-Host "Dist directory cleaned successfully"
 
-# Build the module first: the tests import the BUILT module from Dist, so it must exist before
-# they run.
 Write-Host "--------------------------------"
 Write-Host "Building module..."
 Write-Host "--------------------------------"
@@ -18,5 +23,5 @@ try {
   Write-Host "Module built successfully"
 } catch {
   Write-Host "Building module failed"
-  throw "Building module failed"
+  throw "Building module failed. ($($_.Exception.Message))"
 }

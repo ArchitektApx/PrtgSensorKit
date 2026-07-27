@@ -1,5 +1,9 @@
-# Static analysis: general style/correctness (fail on Error) + cross-version/platform
-# compatibility (fail on any finding). Run from the repo root (via tasks.ps1).
+# Static analysis of Source/: general style and correctness, then cross-version/platform
+# compatibility (Windows PowerShell 5.1 + pwsh 7). Any finding fails the run.
+#
+# Usage (from the repo root):
+#   ./tasks.ps1 lint
+#   pwsh -File Tools/lint.ps1
 
 # Fail loudly: without this, a broken import leaves Invoke-ScriptAnalyzer unresolved and
 # the script would happily print "No errors." over empty results.
@@ -34,11 +38,14 @@ if ($loadedPssa) {
 Write-Host "--------------------------------"
 Write-Host "Analyzing (style / correctness)..."
 Write-Host "--------------------------------"
+# Warnings fail too, like the compatibility check below.
 $findings = Invoke-ScriptAnalyzer -Path ./Source -Recurse -Severity Warning, Error
-if ($findings) { $findings | Format-Table -AutoSize ScriptName, Line, Severity, RuleName | Out-String | Write-Host }
-$errors = @($findings | Where-Object Severity -eq 'Error')
-if ($errors.Count) { throw "PSScriptAnalyzer reported $($errors.Count) error(s)." }
-Write-Host "No errors."
+if ($findings) {
+  $findings | Format-Table -AutoSize ScriptName, Line, Severity, RuleName | Out-String | Write-Host
+  throw ("PSScriptAnalyzer reported $($findings.Count) finding(s). Fix them, or add a targeted " +
+    "[Diagnostics.CodeAnalysis.SuppressMessageAttribute] with a Justification.")
+}
+Write-Host "No errors or warnings."
 
 Write-Host "--------------------------------"
 Write-Host "Checking compatibility (WinPS 5.1 / pwsh 7)..."

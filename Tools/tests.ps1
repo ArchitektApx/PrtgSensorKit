@@ -1,4 +1,12 @@
+# Runs the Pester suite against the BUILT module in Dist/ (build first). Throws on any test
+# failure, so it can gate a release or a CI job.
+#
+# Usage (from the repo root):
+#   ./tasks.ps1 test
+#   pwsh -File Tools/tests.ps1 [-PassThru]
+
 param(
+  # Emit the Pester result object as well, for a caller that wants the counts.
   [switch]$PassThru
 )
 

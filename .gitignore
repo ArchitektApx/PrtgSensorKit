@@ -5,9 +5,8 @@ Dist/
 *.user
 .vs/
 
-# Windows Test VM
+# Windows test VM host file (per developer, see Tools/deploy_to_testvm.sh)
 .testvm
-.deployToTestVM.sh
 
 # Code coverage
 coverage.xml

@@ -1,7 +1,18 @@
-# Runs the Pester suite with code coverage against the BUILT module and prints missed lines.
-# Launch with the injected flags so Get-PrtgRelaunchArgs' dedup branches are exercised:
+# Runs the Pester suite with code coverage against the BUILT module and prints every missed
+# command, so a gap can be traced back to a specific line.
+#
+# Usage (from the repo root):
+#   ./tasks.ps1 coverage [-MinimumPercent 90]
 #   pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Tools/coverage.ps1
+#
+# Prefer that second form when comparing runs: the injected flags exercise
+# Get-PrtgRelaunchArgs' dedup branches, which a plain launch leaves uncovered.
+#
+# Coverage is per host, and the relaunch cmdlets always read as missed (they run in a child
+# process). Compare hosts before calling a line untested.
+
 param(
+  # Exit non-zero when coverage falls below this percentage. 0 disables the gate.
   [double]$MinimumPercent = 0
 )
 
