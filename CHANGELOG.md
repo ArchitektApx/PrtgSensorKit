@@ -5,6 +5,102 @@ All notable changes to PrtgSensorKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.0] - 2026-07-31
+
+### Added
+
+- **Resolved PRTG credential placeholders are masked in sensor messages, error text, and log
+  files.** PRTG's manual warns that placeholders are resolved *before* the output is displayed,
+  so a credential echoed back in an error message - a failing `Invoke-RestMethod` that includes
+  the full request URI, say - ends up on screen in the clear. The module now registers the
+  values it can know about and masks them on the way out:
+
+  - the resolved `prtg_windowspassword`, `prtg_linuxpassword`, and `prtg_snmpcommunity`
+    environment variables, when *"Set placeholders as environment values"* is enabled in the
+    sensor settings. These hold the same strings the command line received, so this also
+    covers a credential passed as a script parameter. User names, domains, and host names are
+    deliberately **not** masked: they are not secrets and hiding them only makes
+    troubleshooting harder. Neither are the RFC 1157 default SNMP communities `public` and
+    `private`, which are not secrets and are far too common as ordinary words to mask;
+  - every value returned by `Get-PrtgSecret -AsPlainText`.
+
+  Masking is partial so an operator can still tell *which* credential leaked: values of 12
+  characters or more keep their first few characters (at most six), shorter values are masked
+  entirely, and the asterisk mask itself is always five characters, so the output never grows
+  with the secret. Values under six characters are never registered - masking those would
+  mangle ordinary text for no real protection.
+
+  Nothing to configure and nothing to opt into. See the limitations in
+  [`Docs/secrets.md`](Docs/secrets.md) - notably that only exact substring matches are found
+  (a URL-encoded or base64'd form is not), and that `Set-PrtgOutput`, `Write-PrtgOutput`,
+  channel names/values, and `Invoke-PrtgSensor -DryRun` are not covered.
+
+### Security
+
+- The masking above is **defence in depth, not a guarantee**. It reduces the blast radius of an
+  accidental credential leak into sensor output; it does not make credentials safe to log. Keep
+  treating credentials as sensitive and keep them out of messages you build yourself.
+
+### Changed
+
+- **`Add-PrtgChannel` now rejects a duplicate channel name.** PRTG's manual requires the
+  `<Channel>` name to be *"unique for the sensor"*; the module enforced the 50-channel cap but
+  not uniqueness. Adding a name that was already added now throws, and the comparison is
+  case-insensitive (`CPU` and `cpu` in one sensor is a bug in every realistic case).
+
+  **This can turn previously green sensors red.** Duplicates are easy to generate accidentally
+  from process, service, or disk names - an ordinary machine has 80+ process names with more
+  than one instance. Aggregate first, and cap the result: the same machine has well over 50
+  distinct process names, which would hit the 50-channel limit instead.
+
+  ```powershell
+  Get-Process | Group-Object ProcessName |
+    Sort-Object { ($_.Group | Measure-Object CPU -Sum).Sum } -Descending |
+    Select-Object -First 10 | ForEach-Object {
+      New-PrtgChannel -Channel $_.Name -Value ($_.Group | Measure-Object CPU -Sum).Sum -Unit CPU -Float
+    } | Add-PrtgChannel
+  ```
+
+  The `Add-PrtgChannel` help example and [`Docs/channels.md`](Docs/channels.md) demonstrated the
+  broken pattern and have been rewritten to the aggregated, capped form above.
+
+### Fixed
+
+- **Log retention no longer deletes files this module did not create.** The `-MaxLogs` sweep in
+  `Write-PrtgLog` matched every `*.log` file in the log directory, so it deleted whatever it
+  found beyond the retention count. With the default `-MaxLogs 30` and an
+  `Invoke-PrtgSensor -EnableLogging -LogPath` pointed at a folder holding 40 unrelated
+  application logs, 11 of them were destroyed on the first run - and two sensor scripts sharing
+  one `-LogPath` (the layout the help recommends, `-LogPath "$PSScriptRoot\Logs"`) silently
+  pruned each other's history. The sweep now only considers files matching this script's own
+  run-file shape, `<scriptname>_<yyyyMMdd-HHmmss>_<pid>.log`.
+
+  Note that retention is therefore **per script name**: run files left behind by a sensor script
+  that has since been renamed are no longer pruned automatically. Never deleting a file we did
+  not create is worth that.
+
+- **A relative `-Path` no longer sends the state lock to a different folder than the state
+  file.** The `.lock` sidecar is handed straight to `[System.IO.FileStream]`, and .NET resolves
+  a relative path against the *process* working directory, which is not PowerShell's current
+  location. `Save-PrtgSensorState -Key k -Value 42 -Path 'store'` therefore either stalled for
+  the full `-TimeoutSeconds` and then blamed a concurrent sensor run that did not exist, or -
+  when a `store` folder happened to exist under both - wrote the state file and its lock into
+  two different directories, so concurrent runs serialized on different locks while writing the
+  same file. PRTG starts sensors with an unhelpful working directory, so this was reachable in
+  production. The path is now normalised once in the shared resolver, so the folder, the state
+  file, and the lock can never disagree.
+
+- **A state lock in a folder that does not exist now fails immediately** with a message naming
+  the missing folder, instead of retrying until the timeout and reporting a lock conflict.
+  `DirectoryNotFoundException` derives from `IOException` and was landing in the retry arm.
+
+- Internal: every parameter and local in the private `Invoke-PrtgStateLock` is now prefixed
+  `PrtgLock`. A script block passed to it resolves unqualified variable names up the dynamic
+  chain - the lock's own frame first - so its former parameter names (`LockFile`,
+  `ScriptBlock`, `TimeoutSeconds`, `Force`, `DeleteLockOnRelease`) were an undocumented reserved
+  list that would silently shadow a caller's variable of the same name. This had already bitten
+  once inside `Use-PrtgCachedResult`, whose workaround is now removed.
+
 ## [1.3.0] - 2026-07-27
 
 ### Added
@@ -276,7 +372,8 @@ shape changed. Sensors written against 1.0.0 behave identically after upgrading.
 - Full comment-based help on every command, 17 runnable examples, Pester suite run
   against the built module on Windows PowerShell 5.1 and PowerShell 7.
 
-[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.3.0...HEAD
+[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.0...HEAD
+[1.4.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.1.0...v1.2.0

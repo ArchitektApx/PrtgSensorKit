@@ -83,8 +83,10 @@ Describe 'Write-PrtgLog pruning' {
     Reset-PrtgLogState
     $dir = Join-Path $TestDrive "logs-$(Get-Random)"
     [void] (New-Item -ItemType Directory -Path $dir)
+    # Run files this script would have written itself: '<scriptname>_<stamp>_<pid>.log'.
+    # Only these are prunable - see the 'never prunes files it did not create' cases below.
     foreach ($i in 1..5) {
-      $stale = Join-Path $dir "old_$i.log"
+      $stale = Join-Path $dir ('Log.Tests_2026010{0}-00000{0}_100{0}.log' -f $i)
       Set-Content -LiteralPath $stale -Value 'old run'
       (Get-Item -LiteralPath $stale).LastWriteTime = (Get-Date).AddHours(-$i)
     }
@@ -100,6 +102,53 @@ Describe 'Write-PrtgLog pruning' {
   It 'keeps everything with -MaxLogs 0' {
     [void] (Invoke-PrtgSensor -EnableLogging -LogPath $dir -MaxLogs 0 { Set-PrtgMessage 'ok' })
     @(Get-ChildItem -LiteralPath $dir -Filter '*.log').Count | Should -Be 6
+  }
+}
+
+Describe 'Write-PrtgLog pruning never deletes files it did not create' {
+  BeforeEach {
+    Reset-PrtgLogState
+    $dir = Join-Path $TestDrive "shared-logs-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $dir)
+  }
+
+  It 'leaves unrelated application logs alone' {
+    # The -LogPath a user is told to use ("$PSScriptRoot\Logs") can already hold other logs.
+    foreach ($name in 'unrelated.log', 'otherapp.log') {
+      Set-Content -LiteralPath (Join-Path $dir $name) -Value 'production log'
+    }
+    [void] (Invoke-PrtgSensor -EnableLogging -LogPath $dir -MaxLogs 1 { Set-PrtgMessage 'ok' })
+    Test-Path -LiteralPath (Join-Path $dir 'unrelated.log') | Should -BeTrue
+    Test-Path -LiteralPath (Join-Path $dir 'otherapp.log') | Should -BeTrue
+  }
+
+  It 'leaves another sensor script run files alone' {
+    foreach ($i in 1..4) {
+      Set-Content -LiteralPath (Join-Path $dir ('beta_2026010{0}-00000{0}_200{0}.log' -f $i)) -Value 'beta run'
+    }
+    [void] (Invoke-PrtgSensor -EnableLogging -LogPath $dir -MaxLogs 1 { Set-PrtgMessage 'ok' })
+    @(Get-ChildItem -LiteralPath $dir -Filter 'beta_*.log').Count | Should -Be 4
+  }
+
+  It 'leaves a sibling script sharing our name prefix alone' {
+    # The case a bare StartsWith("$scriptName`_") test would fail: 'Log.Tests_extra' also
+    # starts with 'Log.Tests_'. Only the fully anchored run-file pattern excludes it.
+    foreach ($i in 1..4) {
+      Set-Content -LiteralPath (Join-Path $dir ('Log.Tests_extra_2026010{0}-00000{0}_300{0}.log' -f $i)) -Value 'sibling run'
+    }
+    [void] (Invoke-PrtgSensor -EnableLogging -LogPath $dir -MaxLogs 1 { Set-PrtgMessage 'ok' })
+    @(Get-ChildItem -LiteralPath $dir -Filter 'Log.Tests_extra_*.log').Count | Should -Be 4
+  }
+
+  It 'still prunes its own run files past MaxLogs' {
+    # Guards against "fixing" the above by disabling retention altogether.
+    foreach ($i in 1..4) {
+      $own = Join-Path $dir ('Log.Tests_2026010{0}-00000{0}_400{0}.log' -f $i)
+      Set-Content -LiteralPath $own -Value 'own run'
+      (Get-Item -LiteralPath $own).LastWriteTime = (Get-Date).AddHours(-$i)
+    }
+    [void] (Invoke-PrtgSensor -EnableLogging -LogPath $dir -MaxLogs 2 { Set-PrtgMessage 'ok' })
+    @(Get-ChildItem -LiteralPath $dir -Filter 'Log.Tests_*.log').Count | Should -Be 2
   }
 }
 

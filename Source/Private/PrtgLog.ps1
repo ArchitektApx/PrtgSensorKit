@@ -70,7 +70,16 @@ function New-PrtgLogFile {
   # Keep the newest MaxLogs run files (the new one counts); 0 = keep all. Delete failures
   # are swallowed: concurrent sensors pruning the same folder race harmlessly.
   if ($script:PrtgLogMaxLogs -gt 0) {
+    # Prune only run files THIS script wrote (the full '<name>_<stamp>_<pid>.log' shape built
+    # above). A -LogPath may be shared - two sensors in one folder, or a folder holding
+    # unrelated application logs - and the sweep must never delete a file this module did not
+    # create. [regex]::Escape guards script names containing regex metacharacters
+    # ('sensor[1].ps1'); the '$' anchor also keeps the 8.3 short-name protection documented in
+    # Remove-PrtgStaleTempFile.ps1. Retention is therefore per script name: run files of a
+    # since-renamed script are never pruned.
+    $ownRunFile = '^' + [regex]::Escape($scriptName) + '_\d{8}-\d{6}_\d+\.log$'
     $stale = @(Get-ChildItem -LiteralPath $directory -Filter '*.log' -File |
+      Where-Object { $_.Name -match $ownRunFile } |
       Sort-Object -Property LastWriteTime -Descending |
       Select-Object -Skip $script:PrtgLogMaxLogs)
     foreach ($item in $stale) {

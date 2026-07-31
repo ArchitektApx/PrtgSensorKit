@@ -75,3 +75,28 @@ Describe 'Test-PrtgNumeric' {
     }
   }
 }
+
+Describe 'Invoke-PrtgStateLock parameter names cannot shadow a caller block variable' {
+  It 'exposes no ordinary parameter name' {
+    # The block runs via '& $PrtgLockBlock' and resolves unqualified names up the DYNAMIC
+    # chain - this frame first - so any unprefixed name here silently shadows the caller's
+    # variable of the same name. The 'PrtgLock' prefix is the only thing preventing that,
+    # and this test is what keeps a future parameter from reopening the hole.
+    InModuleScope PrtgSensorKit {
+      $names = (Get-Command Invoke-PrtgStateLock).Parameters.Keys
+      foreach ($leaky in 'TimeoutSeconds', 'Force', 'ScriptBlock', 'LockFile', 'DeleteLockOnRelease') {
+        $names | Should -Not -Contain $leaky
+      }
+    }
+  }
+
+  It 'has every non-common parameter prefixed PrtgLock' {
+    InModuleScope PrtgSensorKit {
+      $common = [System.Management.Automation.PSCmdlet]::CommonParameters
+      $own = (Get-Command Invoke-PrtgStateLock).Parameters.Keys | Where-Object { $_ -notin $common }
+      foreach ($name in $own) {
+        $name | Should -BeLike 'PrtgLock*'
+      }
+    }
+  }
+}

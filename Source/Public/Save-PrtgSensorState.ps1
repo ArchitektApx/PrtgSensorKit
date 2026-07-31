@@ -106,7 +106,7 @@ function Save-PrtgSensorState {
   $state = Get-PrtgStateFile -Key $Key -Path $Path
   $file = $state.File
 
-  Invoke-PrtgStateLock -LockFile $state.LockFile -TimeoutSeconds $TimeoutSeconds -Force:$Force -ScriptBlock {
+  Invoke-PrtgStateLock -PrtgLockFile $state.LockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force -PrtgLockBlock {
     $loaded = Get-PrtgStateEntry -File $file
     if ($loaded.Unreadable) {
       Write-Warning "Save-PrtgSensorState: existing state file '$file' is unreadable and will be replaced. ($($loaded.UnreadableMessage))"

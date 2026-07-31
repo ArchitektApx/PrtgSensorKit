@@ -190,6 +190,11 @@ function Invoke-PrtgSensor {
 
   $ErrorActionPreference = 'Stop'
 
+  # PRTG's credential placeholder environment variables are per-process and are set before
+  # the sensor starts, so the import-time seeding usually covers them. Re-seeded here for a
+  # long-lived host that imported the module before the variables existed.
+  Initialize-PrtgRedaction
+
   # -LogPath and -MaxLogs only configure logging, so they require the -EnableLogging
   # opt-in. Enforced here instead of via parameter sets: a mandatory switch would make an
   # interactive console PROMPT for -EnableLogging instead of failing with a clear error.

@@ -88,7 +88,7 @@ function Get-PrtgSensorState {
   $state = Get-PrtgStateFile -Key $Key -Path $Path
   $file = $state.File
 
-  $entries = Invoke-PrtgStateLock -LockFile $state.LockFile -TimeoutSeconds $TimeoutSeconds -Force:$Force -ScriptBlock {
+  $entries = Invoke-PrtgStateLock -PrtgLockFile $state.LockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force -PrtgLockBlock {
     $loaded = Get-PrtgStateEntry -File $file
     if ($loaded.Unreadable) {
       Write-Warning "Get-PrtgSensorState: state file '$file' is unreadable, treating it as empty. ($($loaded.UnreadableMessage))"

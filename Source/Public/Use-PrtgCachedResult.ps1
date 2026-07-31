@@ -141,14 +141,9 @@ function Use-PrtgCachedResult {
   $state = Get-PrtgStateFile -Key $Key -Path $Path
   $file = $state.File
 
-  # The block below runs inside Invoke-PrtgStateLock, where '$ScriptBlock' dynamically
-  # resolves to the lock function's OWN parameter (the block itself) - invoking that
-  # recurses forever. Capture the fetch block under a non-shadowed name first.
-  $fetchBlock = $ScriptBlock
-
   # The lock is held across check + fetch + write on purpose: that is the entire fix for
   # the thundering-herd race the manual state pattern has.
-  Invoke-PrtgStateLock -LockFile $state.LockFile -TimeoutSeconds $TimeoutSeconds -Force:$Force -ScriptBlock {
+  Invoke-PrtgStateLock -PrtgLockFile $state.LockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force -PrtgLockBlock {
     $loaded = Get-PrtgStateEntry -File $file
     if ($loaded.Unreadable) {
       Write-Warning "Use-PrtgCachedResult: cache file '$file' is unreadable, refetching. ($($loaded.UnreadableMessage))"
@@ -171,7 +166,7 @@ function Use-PrtgCachedResult {
 
     # Miss: fetch while still holding the lock, so waiting siblings hit the fresh entry.
     # A throwing block skips the save, keeping any stale entry for the next caller.
-    $result = & $fetchBlock
+    $result = & $ScriptBlock
     if ($SkipNullCache -and $null -eq $result) {
       Write-Verbose "Use-PrtgCachedResult: block returned `$null and -SkipNullCache is set; not caching '$Key'."
     } else {
