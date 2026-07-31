@@ -40,6 +40,11 @@ function Get-PrtgStatePath {
     $Path = Get-PrtgDataPath -Store 'State'
   }
 
+  # .NET resolves a relative path against the PROCESS working directory, not PowerShell's
+  # current location (the trap Move-PrtgFileAtomic documents), and the lock sidecar goes
+  # straight to [System.IO.FileStream]. Resolve once here so folder, state file, and lock agree.
+  $Path = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+
   if (-not (Test-Path -LiteralPath $Path)) {
     [void] (New-Item -ItemType Directory -Path $Path -Force)
   }

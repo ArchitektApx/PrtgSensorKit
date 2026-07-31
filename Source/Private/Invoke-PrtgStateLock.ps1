@@ -20,49 +20,68 @@ function Invoke-PrtgStateLock {
   [CmdletBinding()]
   param(
     [Parameter(Mandatory = $true)]
-    [string]$LockFile,
+    [string]$PrtgLockFile,
 
     [Parameter(Mandatory = $true)]
-    [scriptblock]$ScriptBlock,
+    [scriptblock]$PrtgLockBlock,
 
     [Parameter(Mandatory = $false)]
     [ValidateRange(0, 3600)]
-    [int]$TimeoutSeconds = 10,
+    [int]$PrtgLockTimeout = 10,
 
     [Parameter(Mandatory = $false)]
-    [switch]$Force,
+    [switch]$PrtgLockForce,
 
     [Parameter(Mandatory = $false)]
-    [switch]$DeleteLockOnRelease
+    [switch]$PrtgLockDeleteOnRelease
   )
 
-  if ($Force) {
-    return (& $ScriptBlock)
+  # Every parameter and local here is prefixed 'PrtgLock' on purpose. The script block runs via
+  # '& $PrtgLockBlock' and resolves unqualified names up the DYNAMIC chain - this frame first -
+  # so any ordinary name here would silently shadow the caller's variable of the same name.
+  # A new parameter without the prefix reopens that hole.
+
+  if ($PrtgLockForce) {
+    return (& $PrtgLockBlock)
   }
 
-  $options = if ($DeleteLockOnRelease) { [System.IO.FileOptions]::DeleteOnClose }
-             else { [System.IO.FileOptions]::None }
+  $PrtgLockOptions = if ($PrtgLockDeleteOnRelease) { [System.IO.FileOptions]::DeleteOnClose }
+                     else { [System.IO.FileOptions]::None }
 
-  $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
-  $handle = $null
+  $PrtgLockDeadline = [DateTime]::UtcNow.AddSeconds($PrtgLockTimeout)
+  $PrtgLockHandle = $null
 
-  while ($null -eq $handle) {
+  while ($null -eq $PrtgLockHandle) {
     try {
-      $handle = [System.IO.FileStream]::new(
-        $LockFile,
+      $PrtgLockHandle = [System.IO.FileStream]::new(
+        $PrtgLockFile,
         [System.IO.FileMode]::OpenOrCreate,
         [System.IO.FileAccess]::ReadWrite,
         [System.IO.FileShare]::None,
         4096,
-        $options)
+        $PrtgLockOptions)
     } catch [System.UnauthorizedAccessException] {
       # ACL denial is not transient; retrying until the timeout cannot succeed, so fail
       # fast with the same actionable framing as the timeout error.
-      throw ("Access denied creating the state lock '$LockFile'. Check folder permissions for " +
+      throw ("Access denied creating the state lock '$PrtgLockFile'. Check folder permissions for " +
         "the sensor account, point -Path at a writable folder, or use -Force to bypass locking.")
     } catch [System.IO.IOException] {
-      if ([DateTime]::UtcNow -ge $deadline) {
-        throw ("Could not acquire the state lock '$LockFile' within $TimeoutSeconds second(s). " +
+      # DirectoryNotFoundException derives from IOException and is handled INSIDE this arm on
+      # purpose. Giving it its own 'catch [System.IO.DirectoryNotFoundException]' clause ahead
+      # of the other two - the obvious way to write this - makes Windows PowerShell 5.1
+      # dispatch an ordinary sharing violation to the UnauthorizedAccessException arm instead,
+      # so every wait-for-a-concurrent-holder case dies with a bogus "Access denied". pwsh 7 is
+      # unaffected, so a macOS/pwsh-only test run will not catch a reintroduction.
+      # GetBaseException() is defensive - every observed throw here arrives unwrapped - but it
+      # costs nothing and covers a MethodInvocationException wrapper if one ever shows up.
+      if ($_.Exception.GetBaseException() -is [System.IO.DirectoryNotFoundException]) {
+        # Not transient: retrying until the timeout cannot make a directory appear. Fail fast
+        # with an accurate message instead of blaming a concurrent run that does not exist.
+        throw ("The folder for the state lock '$PrtgLockFile' does not exist. Point -Path at an " +
+          "existing folder, or let the module use its default store.")
+      }
+      if ([DateTime]::UtcNow -ge $PrtgLockDeadline) {
+        throw ("Could not acquire the state lock '$PrtgLockFile' within $PrtgLockTimeout second(s). " +
           "Another sensor run may be holding it; retry, raise -TimeoutSeconds, or use -Force to bypass locking.")
       }
       Start-Sleep -Milliseconds 100
@@ -70,8 +89,8 @@ function Invoke-PrtgStateLock {
   }
 
   try {
-    & $ScriptBlock
+    & $PrtgLockBlock
   } finally {
-    $handle.Dispose()
+    $PrtgLockHandle.Dispose()
   }
 }

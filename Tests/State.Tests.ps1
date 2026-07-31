@@ -451,3 +451,117 @@ Describe 'Partially malformed state and cache files' {
     ($warnings -join ' ') | Should -BeLike '*malformed entries*'
   }
 }
+
+Describe 'Relative -Path resolves against the PowerShell location, not the process CWD' {
+  BeforeEach {
+    $psLocationDir = Join-Path $TestDrive "psloc-$(Get-Random)"
+    $processCwdDir = Join-Path $TestDrive "proccwd-$(Get-Random)"
+    foreach ($base in $psLocationDir, $processCwdDir) {
+      [void] (New-Item -ItemType Directory -Path (Join-Path $base 'store') -Force)
+    }
+    $originalLocation = (Get-Location).Path
+    $originalCwd = [Environment]::CurrentDirectory
+  }
+
+  AfterEach {
+    Set-Location -LiteralPath $originalLocation
+    [Environment]::CurrentDirectory = $originalCwd
+  }
+
+  It 'puts the state file and its lock sidecar in the same directory' {
+    # .NET resolves the lock path against the PROCESS working directory. With both folders
+    # existing the split is silent - the lock guards a file in another directory.
+    Set-Location -LiteralPath $psLocationDir
+    [Environment]::CurrentDirectory = $processCwdDir
+
+    Save-PrtgSensorState -Key 'k' -Value 42 -Path 'store'
+
+    Test-Path -LiteralPath (Join-Path $psLocationDir 'store/k.clixml') | Should -BeTrue
+    Test-Path -LiteralPath (Join-Path $psLocationDir 'store/k.clixml.lock') | Should -BeTrue
+    Test-Path -LiteralPath (Join-Path $processCwdDir 'store/k.clixml.lock') | Should -BeFalse
+  }
+
+  It 'reads back a value written through a relative -Path' {
+    Set-Location -LiteralPath $psLocationDir
+    [Environment]::CurrentDirectory = $processCwdDir
+
+    Save-PrtgSensorState -Key 'roundtrip' -Value 'hello' -Path 'store'
+    Get-PrtgSensorState -Key 'roundtrip' -Path 'store' -Latest | Should -Be 'hello'
+  }
+}
+
+Describe 'State lock fails fast when its folder does not exist' {
+  It 'throws the missing-folder message instead of stalling for the full timeout' {
+    # DirectoryNotFoundException derives from IOException, so without its own handling it
+    # lands in the retry arm and spins to the deadline blaming a concurrent run. Unreachable
+    # through the public cmdlets now that Get-PrtgStatePath creates the folder, so this
+    # exercises the lock helper directly - a -Path on a vanished network share reaches the
+    # same code.
+    $missing = Join-Path $TestDrive "gone-$(Get-Random)/deeper/k.clixml.lock"
+
+    # Returned rather than parked in $script:, which inside InModuleScope IS the module's own
+    # scope and would leave the values there for every later test in the session.
+    $result = InModuleScope PrtgSensorKit -Parameters @{ LockPath = $missing } {
+      param($LockPath)
+      $sw = [System.Diagnostics.Stopwatch]::StartNew()
+      $message = $null
+      try {
+        Invoke-PrtgStateLock -PrtgLockFile $LockPath -PrtgLockTimeout 10 -PrtgLockBlock { 'never runs' }
+      } catch {
+        $message = $_.Exception.Message
+      }
+      $sw.Stop()
+      [PSCustomObject]@{ Message = $message; Elapsed = $sw.Elapsed.TotalSeconds }
+    }
+
+    $result.Message | Should -Not -BeNullOrEmpty
+    $result.Message | Should -BeLike '*does not exist*'
+    $result.Elapsed | Should -BeLessThan 2
+  }
+}
+
+Describe 'A caller script block sees its OWN variables inside the state lock' {
+  It 'does not bind the lock function frame for names it used to declare' {
+    # '& $PrtgLockBlock' resolves unqualified names up the dynamic chain, so an unprefixed
+    # parameter on Invoke-PrtgStateLock would shadow these caller variables.
+    $lock = Join-Path $TestDrive "shadow-$(Get-Random).lock"
+    [void] (New-Item -ItemType Directory -Path (Split-Path -Parent $lock) -Force)
+
+    $seen = InModuleScope PrtgSensorKit -Parameters @{ LockPath = $lock } {
+      param($LockPath)
+      $TimeoutSeconds = 999
+      $Force = 'caller-force'
+      $LockFile = 'caller-lockfile'
+      $ScriptBlock = 'caller-scriptblock'
+      $DeleteLockOnRelease = 'caller-delete'
+
+      Invoke-PrtgStateLock -PrtgLockFile $LockPath -PrtgLockTimeout 5 -PrtgLockBlock {
+        [PSCustomObject]@{
+          TimeoutSeconds      = $TimeoutSeconds
+          Force               = $Force
+          LockFile            = $LockFile
+          ScriptBlock         = $ScriptBlock
+          DeleteLockOnRelease = $DeleteLockOnRelease
+        }
+      }
+    }
+
+    $seen.TimeoutSeconds | Should -Be 999
+    $seen.Force | Should -Be 'caller-force'
+    $seen.LockFile | Should -Be 'caller-lockfile'
+    $seen.ScriptBlock | Should -Be 'caller-scriptblock'
+    $seen.DeleteLockOnRelease | Should -Be 'caller-delete'
+  }
+
+  It 'still honours a non-default -TimeoutSeconds and -Force on the public cmdlets' {
+    $dir = Join-Path $TestDrive "state-lockargs-$(Get-Random)"
+    Save-PrtgSensorState -Key 'k' -Value 1 -Path $dir -TimeoutSeconds 3
+    Get-PrtgSensorState -Key 'k' -Path $dir -TimeoutSeconds 3 -Latest | Should -Be 1
+    Save-PrtgSensorState -Key 'k' -Value 2 -Path $dir -Force
+    Get-PrtgSensorState -Key 'k' -Path $dir -Force -Latest | Should -Be 2
+    Use-PrtgCachedResult -Key 'c' -MaxAge (New-TimeSpan -Minutes 5) -Path $dir -TimeoutSeconds 3 { 'fetched' } |
+      Should -Be 'fetched'
+    Clear-PrtgSensorState -Key 'k' -Path $dir -TimeoutSeconds 3
+    Test-Path -LiteralPath (Join-Path $dir 'k.clixml') | Should -BeFalse
+  }
+}
