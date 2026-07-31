@@ -90,11 +90,18 @@ function Get-PrtgSecret {
   }
 
   if ($AsPlainText) {
+    # The module KNOWS this value is a secret, so register it for masking before handing it
+    # out: an exception message that echoes it back (a failing Invoke-RestMethod URI, say)
+    # is otherwise emitted to PRTG in the clear.
     if ($object -is [System.Management.Automation.PSCredential]) {
-      return $object.GetNetworkCredential().Password
+      $plain = $object.GetNetworkCredential().Password
+      Add-PrtgRedaction $plain
+      return $plain
     }
     if ($object -is [System.Security.SecureString]) {
-      return [System.Net.NetworkCredential]::new('', $object).Password
+      $plain = [System.Net.NetworkCredential]::new('', $object).Password
+      Add-PrtgRedaction $plain
+      return $plain
     }
     # Only reachable for a hand-written or foreign clixml. Throwing beats returning an object the
     # caller asked to get as a string.

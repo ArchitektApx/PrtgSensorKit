@@ -30,8 +30,10 @@ function Write-PrtgLog {
   .PARAMETER Message
     The text to log. One '<timestamp> [<LEVEL>] <message>' line per call; embedded
     newlines are preserved, so multi-line content like exception dumps is fine. The
-    timestamp is local time with UTC offset (ISO 8601 round-trip format). Do not log
-    secret values; nothing is redacted.
+    timestamp is local time with UTC offset (ISO 8601 round-trip format). Secrets the
+    module knows about (resolved PRTG credential placeholders and Get-PrtgSecret
+    -AsPlainText values) are masked, but that is defence in depth, not a guarantee -
+    still do not log secret values deliberately. See Docs/secrets.md.
 
   .PARAMETER Level
     Tag for the line: Info (default), Warning, Error, or Debug. A label only - no level
@@ -72,7 +74,7 @@ function Write-PrtgLog {
   )
 
   try {
-    $line = '{0} [{1}] {2}{3}' -f [DateTime]::Now.ToString('o'), $Level.ToUpperInvariant(), $Message, [Environment]::NewLine
+    $line = '{0} [{1}] {2}{3}' -f [DateTime]::Now.ToString('o'), $Level.ToUpperInvariant(), (Protect-PrtgSecretText -Text $Message), [Environment]::NewLine
     if ([string]::IsNullOrEmpty($script:PrtgLogFile) -or -not (Test-Path -LiteralPath $script:PrtgLogFile)) {
       $script:PrtgLogFile = New-PrtgLogFile -FirstLine $line
     } else {

@@ -55,3 +55,22 @@ different working directory. When a sensor works in your console but fails deplo
 `-EnableLogging` and read the run log from the probe - see [File logging](logging.md).
 For secrets that fail only at runtime, see the account-binding note in
 [Credentials and secrets](secrets.md).
+
+## Secrets in error messages and logs
+
+Sensor messages, PRTG error text, and `Write-PrtgLog` lines are masked for the secret values the
+module knows about - resolved PRTG credential placeholders and `Get-PrtgSecret -AsPlainText`
+values. A leaked credential shows up as `abc-de*****` rather than in full, which is usually
+enough to tell *which* credential got into the message.
+
+Two things to keep in mind while debugging:
+
+- **`-DryRun` is not masked.** It rethrows the original `ErrorRecord` so you get the real error
+  on the console, which is the point. That path never reaches PRTG.
+- **Masking is a safety net, not a guarantee.** Only exact substring matches are found, and
+  `Set-PrtgOutput`, `Write-PrtgOutput`, channel names, and channel values are not covered. The
+  full list of limitations is in [Credentials and secrets](secrets.md).
+
+If a value you expected to be masked shows up in full, the usual cause is that
+*"Set placeholders as environment values"* is not enabled on the sensor, so the module never saw
+the credential.

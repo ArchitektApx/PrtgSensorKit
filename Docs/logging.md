@@ -40,8 +40,10 @@ Details worth knowing:
   message. UTF-8 on disk (with BOM under Windows PowerShell 5.1).
 - A relative `-LogPath` resolves against the script's folder, not the working directory
   (PRTG starts sensors with an unhelpful CWD).
-- **Don't log secret values** - nothing is redacted
-  (see [Credentials and secrets](secrets.md)).
+- **Don't log secret values deliberately.** Secrets the module knows about (resolved PRTG
+  credential placeholders and `Get-PrtgSecret -AsPlainText` values) are masked in log lines,
+  but that is defence in depth, not a guarantee - only exact substring matches are found.
+  See [Credentials and secrets](secrets.md) for what it does and does not cover.
 
 For the interactive debugging workflow (`-DryRun`, the sensor doctor), see
 [Diagnosing and debugging](debugging.md).
