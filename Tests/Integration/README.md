@@ -71,6 +71,7 @@ Get-ChildItem .\Tests\Integration -Recurse -Filter *.ps1 |
 | failing/22-nonterminating-error.ps1 | failing | Down; text contains `Cannot find path` (was Up before 1.3.0) | all Pass |
 | working/23-error-opt-out.ps1 | working | Up; `Optional Present` = 0, `Required` = 1 | all Pass |
 | working/24-cim-uint64-raw.ps1 | working | Up; byte channels per volume, plus `Large Value` = 9007199254740993 | all Pass |
+| working/25-log-retention-guard.ps1 | working | Up; `Foreign Logs Intact` = 2, `Own Run Files` = 1 | all Pass |
 
 Notes:
 
@@ -124,3 +125,17 @@ Notes:
   an editor that adds a BOM or converts the encoding; copy it to the probe as-is. Its
   breakage is wrong DISPLAY (mojibake), not a parse error - unlike the other malformed
   sensors it shows Up.
+- 25 is the real-probe guard for the 1.4.0 log-retention fix, and it is the only sensor
+  that validates a **data-loss** fix, so run it before any release that touches logging.
+  It plants two decoy files in its own default log folder and back-dates them to 2020 so
+  the retention sweep would reach them first: a foreign `unrelated-application.log`, and
+  `<scriptname>_extra_<stamp>_<pid>.log`, a run file of a different script whose name
+  starts with this one's. Pre-1.4.0 both were deleted on the first scan. It runs with
+  `-MaxLogs 1` so the sweep fires on EVERY scan rather than after 30, and `Own Run Files`
+  = 1 confirms retention still prunes its own files (the fix must not "work" by disabling
+  retention). Self-seeding, no setup - but it deliberately leaves the decoys behind, since
+  they have to survive to be tested. Clean up afterwards:
+
+  ```powershell
+  Remove-Item "$env:ProgramData\PrtgSensorKit\Logs\working_25-log-retention-guard" -Recurse -Force
+  ```
