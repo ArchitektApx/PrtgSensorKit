@@ -196,4 +196,28 @@ Describe 'Add-PrtgChannel' {
     1..3 | ForEach-Object { New-PrtgChannel -Channel "C$_" -Value $_ } | Add-PrtgChannel
     (Write-PrtgOutput | ConvertFrom-Json).prtg.result.Count | Should -Be 3
   }
+
+  It 'rejects a duplicate channel name and names the channel' {
+    New-PrtgChannel -Channel 'CPU' -Value 1 | Add-PrtgChannel
+    { New-PrtgChannel -Channel 'CPU' -Value 2 | Add-PrtgChannel } |
+      Should -Throw "*A channel named 'CPU' was already added*"
+  }
+
+  It 'rejects a duplicate that differs only in case' {
+    # PRTG shows channel names to humans; 'CPU' next to 'cpu' in one sensor is a bug.
+    New-PrtgChannel -Channel 'CPU' -Value 1 | Add-PrtgChannel
+    { New-PrtgChannel -Channel 'cpu' -Value 2 | Add-PrtgChannel } | Should -Throw
+  }
+
+  It 'still accepts distinct names' {
+    { 1..5 | ForEach-Object { New-PrtgChannel -Channel "C$_" -Value $_ | Add-PrtgChannel } } |
+      Should -Not -Throw
+    (Write-PrtgOutput | ConvertFrom-Json).prtg.result.Count | Should -Be 5
+  }
+
+  It 'never throws on the first channel added to an empty output' {
+    # Guards the empty-list false positive: member enumeration over an empty ArrayList.
+    { New-PrtgChannel -Channel 'First' -Value 1 | Add-PrtgChannel } | Should -Not -Throw
+    (Write-PrtgOutput | ConvertFrom-Json).prtg.result.Count | Should -Be 1
+  }
 }

@@ -2,6 +2,7 @@
 
 `New-PrtgChannel` builds a single channel. Pipe each one to `Add-PrtgChannel`.
 PRTG allows a **maximum of 50 channels** per sensor - adding a 51st throws.
+Channel names must also be **unique** within a sensor - adding a name twice throws.
 
 ```powershell
 # Percentage with a float value and lower limits
@@ -17,10 +18,14 @@ Invoke-PrtgSensor {
     -LimitMaxWarning 100 -LimitMaxError 500 -LimitWarningMsg 'Slow' -LimitMode $true |
     Add-PrtgChannel
 
-  # One channel per process
-  Get-Process | ForEach-Object {
-    New-PrtgChannel -Channel $_.ProcessName -Value $_.CPU -Float
-  } | Add-PrtgChannel
+  # One channel per process NAME - group first (several processes share a name and channel
+  # names must be unique), then cap the list: an ordinary machine has well over 50 distinct
+  # process names, and PRTG allows at most 50 channels.
+  Get-Process | Group-Object ProcessName |
+    Sort-Object { ($_.Group | Measure-Object CPU -Sum).Sum } -Descending |
+    Select-Object -First 10 | ForEach-Object {
+      New-PrtgChannel -Channel $_.Name -Value ($_.Group | Measure-Object CPU -Sum).Sum -Unit CPU -Float
+    } | Add-PrtgChannel
 }
 ```
 

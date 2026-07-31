@@ -45,6 +45,10 @@ Describe 'Write-PrtgOutput' {
 }
 
 Describe 'State management' {
+  # Without this the leftover channel from the previous Describe carries over: the
+  # uniqueness check in Add-PrtgChannel turns that cross-file state leak into a failure.
+  BeforeEach { Clear-PrtgOutput }
+
   It 'Clear-PrtgOutput resets channels and text' {
     New-PrtgChannel -Channel 'A' -Value 1 | Add-PrtgChannel
     Set-PrtgMessage 'stuff'
