@@ -1,3 +1,5 @@
+
+
 <div align="center">
 
 # 📡 PrtgSensorKit
@@ -173,7 +175,7 @@ lower-level commands directly.
 ./tasks.ps1 lint                       # PSScriptAnalyzer style + 5.1/7.0 compatibility checks
 ./tasks.ps1 build                      # builds to ./Dist, then runs the Pester suite
 ./tasks.ps1 test                       # runs the Pester suite against the built module
-./tasks.ps1 prepare_release 1.1.0      # gates + changelog check, stamps version, verified rebuild
+./tasks.ps1 prepare_release 1.4.0      # gates + changelog check, stamps version, verified rebuild
 ```
 
 ## 📄 License
