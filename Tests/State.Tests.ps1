@@ -7,6 +7,12 @@ BeforeAll {
 . $PSScriptRoot/_TestHelpers.ps1
 $onWindows = Test-OnWindowsHost
 
+# Also discovery-time. The mixed-kind ordering tests only discriminate where the host's UTC
+# offset is nonzero: at offset zero a Local-marked and a Utc-marked timestamp compare identically
+# on the raw and the normalized path, so the tests would pass without the fix and guard nothing.
+# The tie assertion below carries the offset-independent half of the rule.
+$noUtcOffset = ([TimeZoneInfo]::Local.GetUtcOffset([DateTime]::UtcNow) -eq [TimeSpan]::Zero)
+
 Describe 'Save/Get-PrtgSensorState round-trip' {
   BeforeEach { $dir = Join-Path $TestDrive "state-$(Get-Random)" }
 
@@ -674,5 +680,71 @@ Describe 'Corruption warnings the operator relies on' {
       (@($warnings) -join ' ') | Should -BeLike `
         "Use-PrtgCachedResult: cache file '*partcache.clixml' had 2 malformed entries (corrupted on disk), ignoring them."
     }
+  }
+}
+
+Describe 'Get-PrtgSensorState names one newest entry on both paths' {
+  BeforeAll {
+    # A history whose raw timestamp comparison and whose UTC comparison point opposite ways.
+    # Placing the Local-marked entry half an offset from the Utc-marked one produces that
+    # disagreement whichever sign the host's offset has: the Local entry's real instant lands
+    # behind the Utc one under a positive offset and ahead of it under a negative one, while
+    # the raw values always say the opposite. 'stale' is far enough out to be dropped by any
+    # plausible -MaxAge, so one history exercises filtering and ordering together.
+    function New-MixedKindHistory {
+      [OutputType([PSCustomObject])]
+      param([string]$Folder, [string]$Key)
+
+      [void] (New-Item -ItemType Directory -Path $Folder -Force)
+      $utcOffset = [TimeZoneInfo]::Local.GetUtcOffset([DateTime]::UtcNow)
+      $anchor = [DateTime]::UtcNow
+      $localRaw = [DateTime]::SpecifyKind($anchor.AddTicks([long]($utcOffset.Ticks / 2)), [DateTimeKind]::Local)
+
+      @(
+        [PSCustomObject]@{ Value = 'stale'; Timestamp = $anchor.AddDays(-10) }
+        [PSCustomObject]@{ Value = 'utc-marked'; Timestamp = $anchor }
+        [PSCustomObject]@{ Value = 'local-marked'; Timestamp = $localRaw }
+      ) | Export-Clixml -LiteralPath (Join-Path $Folder "$Key.clixml") -Depth 5
+
+      [PSCustomObject]@{
+        Offset = $utcOffset
+        Newest = if ($utcOffset.Ticks -gt 0) { 'utc-marked' } else { 'local-marked' }
+      }
+    }
+  }
+
+  BeforeEach { $dir = Join-Path $TestDrive "order-$(Get-Random)" }
+
+  It 'agrees with -Latest on a history holding both a UTC-marked and a local-marked timestamp' -Skip:$noUtcOffset {
+    $expected = New-MixedKindHistory -Folder $dir -Key 'mixed'
+
+    $fromHistory = @(Get-PrtgSensorState -Key 'mixed' -Path $dir)[0].Value
+    $fromLatest = Get-PrtgSensorState -Key 'mixed' -Path $dir -Latest
+
+    $fromHistory | Should -Be $fromLatest
+    $fromHistory | Should -Be $expected.Newest
+  }
+
+  It 'filters by age and orders by the same clock' -Skip:$noUtcOffset {
+    $expected = New-MixedKindHistory -Folder $dir -Key 'aged'
+    $maxAge = New-TimeSpan -Days 1
+
+    $kept = @(Get-PrtgSensorState -Key 'aged' -Path $dir -MaxAge $maxAge)
+
+    $kept.Value | Should -Not -Contain 'stale'
+    $kept[0].Value | Should -Be $expected.Newest
+    Get-PrtgSensorState -Key 'aged' -Path $dir -MaxAge $maxAge -Latest | Should -Be $expected.Newest
+  }
+
+  It 'names the last-appended entry as newest when timestamps are identical' {
+    # Two saves inside one clock tick are enough to produce this on an ordinary probe; five
+    # entries because Sort-Object can happen to leave a shorter list in its input order.
+    [void] (New-Item -ItemType Directory -Path $dir -Force)
+    $tick = [DateTime]::UtcNow
+    @(1..5 | ForEach-Object { [PSCustomObject]@{ Value = "e$_"; Timestamp = $tick } }) |
+      Export-Clixml -LiteralPath (Join-Path $dir 'tie.clixml') -Depth 5
+
+    @(Get-PrtgSensorState -Key 'tie' -Path $dir)[0].Value | Should -Be 'e5'
+    Get-PrtgSensorState -Key 'tie' -Path $dir -Latest | Should -Be 'e5'
   }
 }

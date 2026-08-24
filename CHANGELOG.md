@@ -5,6 +5,18 @@ All notable changes to PrtgSensorKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`Get-PrtgSensorState` can no longer name two different entries as the newest one.** The
+  entry history and `-Latest` ordered by different rules, so the same file could answer the
+  same question two ways in a single call. Both now compare timestamps in UTC and break ties
+  in favour of the entry appended last. Two saves inside one clock tick were enough to hit the
+  tie case, and `[DateTime]::UtcNow` has roughly 15 ms resolution on .NET Framework. Histories
+  written by the module are unaffected in value: it only ever stores UTC timestamps, and
+  `Export-Clixml` preserves that, so the normalization is the identity transform on them.
+
 ## [1.4.0] - 2026-07-31
 
 ### Added

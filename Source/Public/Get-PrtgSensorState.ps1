@@ -119,5 +119,15 @@ function Get-PrtgSensorState {
     return $newest.Value
   }
 
-  return @($entries | Sort-Object -Property Timestamp -Descending)
+  # Newest first by real elapsed time. Two rules, both needed for this path to name the same
+  # entry as -Latest: a hand-written or foreign clixml can hold Local or Unspecified kinds, so
+  # the comparison normalizes to UTC; and Sort-Object is not stable while UtcNow has ~15 ms
+  # resolution, so the append index breaks ties in favour of the entry written last - file order
+  # is append order, the same rule Get-PrtgNewestEntry applies with its -ge comparison.
+  $order = 0
+  $decorated = @($entries | ForEach-Object { [PSCustomObject]@{ Order = $order++; Entry = $_ } })
+  return @($decorated |
+      Sort-Object -Property @{ Expression = { $_.Entry.Timestamp.ToUniversalTime() }; Descending = $true },
+                            @{ Expression = 'Order'; Descending = $true } |
+      ForEach-Object { $_.Entry })
 }
