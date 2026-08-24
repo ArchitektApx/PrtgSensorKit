@@ -88,15 +88,18 @@ function Clear-PrtgSensorState {
     [switch]$ClearLock
   )
 
-  $state = Get-PrtgStateFile -Key $Key -Path $Path
-  $file = $state.File
-  $lockFile = $state.LockFile
+  # Resolved here as well as inside the envelope, because the sidecar path is needed AFTER the
+  # lock has been released, and the envelope has let go of it by then.
+  $lockFile = (Get-PrtgStateFile -Key $Key -Path $Path).LockFile
 
   # Captured here: $PSBoundParameters inside the script block below would be the block's
   # own (empty) bound parameters, not this function's.
   $pruneMode = $PSBoundParameters.ContainsKey('MaxAge')
 
   $action = {
+    param($PrtgOpState)
+    $file = $PrtgOpState.File
+
     if (-not (Test-Path -LiteralPath $file)) { return }
 
     if (-not $pruneMode) {
@@ -105,14 +108,9 @@ function Clear-PrtgSensorState {
       return
     }
 
-    $loaded = Get-PrtgStateEntry -File $file
-    if ($loaded.Unreadable) {
-      Write-Warning "Clear-PrtgSensorState: state file '$file' is unreadable and will be deleted. ($($loaded.UnreadableMessage))"
-    }
-    if ($loaded.MalformedCount -gt 0) {
-      Write-Warning "Clear-PrtgSensorState: state file '$file' had $($loaded.MalformedCount) malformed entries (corrupted on disk), ignoring them."
-    }
-    $entries = @($loaded.Entries)
+    $loaded = Get-PrtgStateEntry -File $file -Cmdlet 'Clear-PrtgSensorState' -Noun 'state file' `
+      -UnreadableConsequence ' and will be deleted'
+    $entries = @($loaded)
 
     $cutoff = [DateTime]::UtcNow - $MaxAge
     $keep = @($entries | Where-Object { $_.Timestamp.ToUniversalTime() -ge $cutoff })
@@ -121,7 +119,7 @@ function Clear-PrtgSensorState {
       Remove-Item -LiteralPath $file -Force
       Write-Verbose "Cleared state '$Key' (no entries younger than $MaxAge, '$file' deleted)."
     } else {
-      Export-PrtgClixmlAtomic -InputObject $keep -LiteralPath $file -Depth $Depth
+      Export-PrtgClixmlAtomic -PrtgWriteInputObject $keep -PrtgWriteLiteralPath $file -PrtgWriteDepth $Depth
       Write-Verbose "Pruned state '$Key' to $($keep.Count) entries younger than $MaxAge."
     }
   }
@@ -129,8 +127,8 @@ function Clear-PrtgSensorState {
   # With -ClearLock the lock handle is opened with DeleteOnClose, so the OS removes the
   # sidecar atomically when the handle is released - no window where a freshly acquired
   # lock could be deleted under its holder.
-  Invoke-PrtgStateLock -PrtgLockFile $lockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force `
-    -PrtgLockDeleteOnRelease:($ClearLock -and -not $Force) -PrtgLockBlock $action
+  Invoke-PrtgStateOperation -PrtgOpKey $Key -PrtgOpPath $Path -PrtgOpTimeout $TimeoutSeconds `
+    -PrtgOpForce:$Force -PrtgOpDeleteOnRelease:($ClearLock -and -not $Force) -PrtgOpBlock $action
 
   if ($ClearLock -and $Force -and (Test-Path -LiteralPath $lockFile)) {
     try {

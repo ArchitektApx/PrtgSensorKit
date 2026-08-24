@@ -5,6 +5,54 @@ All notable changes to PrtgSensorKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.1] - 2026-08-24
+
+### Changed
+
+- **`Save-PrtgSecret` now writes through the same crash-safe sequence as the state store.** It
+  kept a parallel copy of that sequence, so the last two crash-safety fixes each had to be made
+  twice, months apart. The shared writer gained a before-write and an after-swap hook, and the
+  secret store hardens its file ACL through those: the blob still never exists under inherited
+  permissions, and the destination is still re-locked after the swap. Nothing changes for a
+  sensor script. Two details worth knowing for anyone looking at the store folder: a secret's
+  temporary file is now named `<Name>.clixml.<guid>.tmp` rather than `<Name>.<guid>.tmp`, and
+  leftovers in both naming generations are swept. The secret payload is now serialized at the
+  shared writer's depth of 5 instead of `Export-Clixml`'s implicit 2; secrets written before
+  this release read back unchanged.
+
+- **A failed secret save is no longer always blamed on a name collision.** The message that
+  explains a cross-account collision - *"The existing file belongs to another account or is held
+  open by another process. Delete it as an administrator"* - is now used only when the secret
+  file already existed, which is the only case that message can describe. A save that fails when
+  no secret file existed yet - against a read-only store folder, say - now reports the underlying
+  error instead of advising an operator to delete a secret that is not there.
+
+- **The four State store cmdlets now share one opening step.** `Save-`, `Get-`,
+  `Clear-PrtgSensorState` and `Use-PrtgCachedResult` each assembled the same sequence by hand
+  before they could do anything: work out where a key lives, then take the lock sidecar for it.
+  Four copies meant the last two concurrency fixes each had to be written and verified four
+  times, and the copies had already drifted once without any test noticing. That sequence now
+  has one owner, so the next fix to it lands once. Nothing changes for a sensor script: every
+  parameter keeps its name, type and default, every return value and every message is
+  unchanged, and each cmdlet still waits its own published time for the lock - ten seconds for
+  the three state cmdlets, thirty for the cache, which is deliberate and now pinned by a test.
+
+- **The secret store folder is resolved in one place.** `Save-PrtgSecret` and `Get-PrtgSecret`
+  each resolved it inline with an identical copy of the same code. Where a secret lives is now
+  answered by a single private resolver, and that answer is covered by tests that need no DPAPI.
+  The resolved folder is unchanged, on Windows and off it, and reading a secret still never
+  creates the folder.
+
+### Fixed
+
+- **`Get-PrtgSensorState` can no longer name two different entries as the newest one.** The
+  entry history and `-Latest` ordered by different rules, so the same file could answer the
+  same question two ways in a single call. Both now compare timestamps in UTC and break ties
+  in favour of the entry appended last. Two saves inside one clock tick were enough to hit the
+  tie case, and `[DateTime]::UtcNow` has roughly 15 ms resolution on .NET Framework. Histories
+  written by the module are unaffected in value: it only ever stores UTC timestamps, and
+  `Export-Clixml` preserves that, so the normalization is the identity transform on them.
+
 ## [1.4.0] - 2026-07-31
 
 ### Added
@@ -372,7 +420,8 @@ shape changed. Sensors written against 1.0.0 behave identically after upgrading.
 - Full comment-based help on every command, 17 runnable examples, Pester suite run
   against the built module on Windows PowerShell 5.1 and PowerShell 7.
 
-[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.0...HEAD
+[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.1...HEAD
+[1.4.1]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.2.1...v1.3.0
 [1.2.1]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.2.0...v1.2.1

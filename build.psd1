@@ -3,6 +3,6 @@
   # Subsequent relative paths are to the ModuleManifest
   OutputDirectory = "..\Dist\PrtgSensorKit"
   SourceDirectories = @('Private', 'Public')
-  SemVer = "1.4.0"
+  SemVer = "1.4.1"
   CopyPaths = @()
 }

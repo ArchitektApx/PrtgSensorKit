@@ -73,7 +73,7 @@ function Save-PrtgSensorState {
     Clear-PrtgSensorState
   #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-    Justification = 'Value, Depth, and MaxEntries are used inside the script block passed to Invoke-PrtgStateLock; the analyzer cannot see into it.')]
+    Justification = 'Value, Depth, and MaxEntries are used inside the script block passed to Invoke-PrtgStateOperation; the analyzer cannot see into it.')]
   [CmdletBinding()]
   param(
     [Parameter(Mandatory = $true)]
@@ -103,18 +103,14 @@ function Save-PrtgSensorState {
     [switch]$Force
   )
 
-  $state = Get-PrtgStateFile -Key $Key -Path $Path
-  $file = $state.File
+  Invoke-PrtgStateOperation -PrtgOpKey $Key -PrtgOpPath $Path -PrtgOpTimeout $TimeoutSeconds `
+    -PrtgOpForce:$Force -PrtgOpBlock {
+    param($PrtgOpState)
+    $file = $PrtgOpState.File
 
-  Invoke-PrtgStateLock -PrtgLockFile $state.LockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force -PrtgLockBlock {
-    $loaded = Get-PrtgStateEntry -File $file
-    if ($loaded.Unreadable) {
-      Write-Warning "Save-PrtgSensorState: existing state file '$file' is unreadable and will be replaced. ($($loaded.UnreadableMessage))"
-    }
-    if ($loaded.MalformedCount -gt 0) {
-      Write-Warning "Save-PrtgSensorState: state file '$file' had $($loaded.MalformedCount) malformed entries (corrupted on disk), ignoring them."
-    }
-    $entries = @($loaded.Entries)
+    $loaded = Get-PrtgStateEntry -File $file -Cmdlet 'Save-PrtgSensorState' -Noun 'state file' `
+      -UnreadableNoun 'existing state file' -UnreadableConsequence ' and will be replaced'
+    $entries = @($loaded)
 
     $entries += [PSCustomObject]@{
       Value     = $Value
@@ -125,7 +121,7 @@ function Save-PrtgSensorState {
       $entries = @($entries | Select-Object -Last $MaxEntries)
     }
 
-    Export-PrtgClixmlAtomic -InputObject $entries -LiteralPath $file -Depth $Depth
+    Export-PrtgClixmlAtomic -PrtgWriteInputObject $entries -PrtgWriteLiteralPath $file -PrtgWriteDepth $Depth
     Write-Verbose "Saved state '$Key' to '$file' ($($entries.Count) entries)."
   }
 }

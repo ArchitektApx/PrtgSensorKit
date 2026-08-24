@@ -107,7 +107,7 @@ function Use-PrtgCachedResult {
     Clear-PrtgSensorState
   #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-    Justification = 'MaxAge, ScriptBlock, Depth, and SkipNullCache are used inside the script block passed to Invoke-PrtgStateLock; the analyzer cannot see into it.')]
+    Justification = 'MaxAge, ScriptBlock, Depth, and SkipNullCache are used inside the script block passed to Invoke-PrtgStateOperation; the analyzer cannot see into it.')]
   [CmdletBinding()]
   param(
     [Parameter(Mandatory = $true)]
@@ -138,20 +138,16 @@ function Use-PrtgCachedResult {
     [switch]$Force
   )
 
-  $state = Get-PrtgStateFile -Key $Key -Path $Path
-  $file = $state.File
-
   # The lock is held across check + fetch + write on purpose: that is the entire fix for
   # the thundering-herd race the manual state pattern has.
-  Invoke-PrtgStateLock -PrtgLockFile $state.LockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force -PrtgLockBlock {
-    $loaded = Get-PrtgStateEntry -File $file
-    if ($loaded.Unreadable) {
-      Write-Warning "Use-PrtgCachedResult: cache file '$file' is unreadable, refetching. ($($loaded.UnreadableMessage))"
-    }
-    if ($loaded.MalformedCount -gt 0) {
-      Write-Warning "Use-PrtgCachedResult: cache file '$file' had $($loaded.MalformedCount) malformed entries (corrupted on disk), ignoring them."
-    }
-    $entries = @($loaded.Entries)
+  Invoke-PrtgStateOperation -PrtgOpKey $Key -PrtgOpPath $Path -PrtgOpTimeout $TimeoutSeconds `
+    -PrtgOpForce:$Force -PrtgOpBlock {
+    param($PrtgOpState)
+    $file = $PrtgOpState.File
+
+    $loaded = Get-PrtgStateEntry -File $file -Cmdlet 'Use-PrtgCachedResult' -Noun 'cache file' `
+      -UnreadableConsequence ', refetching'
+    $entries = @($loaded)
 
     if ($entries.Count -gt 0) {
       # The file may hold a history written by Save-PrtgSensorState; this cmdlet itself
@@ -172,7 +168,7 @@ function Use-PrtgCachedResult {
     } else {
       # Written atomically: a corrupt cache entry would send every sensor on the probe back to
       # the source at once, which is the stampede this cmdlet exists to prevent.
-      Export-PrtgClixmlAtomic -LiteralPath $file -Depth $Depth -InputObject ([PSCustomObject]@{
+      Export-PrtgClixmlAtomic -PrtgWriteLiteralPath $file -PrtgWriteDepth $Depth -PrtgWriteInputObject ([PSCustomObject]@{
         Value     = $result
         Timestamp = [DateTime]::UtcNow
       })

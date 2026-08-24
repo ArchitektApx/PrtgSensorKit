@@ -278,6 +278,8 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   It 'sweeps a stale temp file left by an earlier interrupted save' {
     # A killed process (a PRTG sensor timeout, power loss) strands the temp file; nothing else
     # in the module prunes it, so the next save of the same name has to.
+    # These names are the LEGACY generation, '<Name>.<guid>.tmp', written before this cmdlet
+    # shared the atomic writer. They hold real encrypted payload, so they must still be swept.
     $path = Join-Path $TestDrive 'stale'
     New-Item -ItemType Directory -Path $path -Force | Out-Null
     $stale = Join-Path $path 'Stale.deadbeef.tmp'
@@ -316,15 +318,36 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
     # The store folder is shared but each file is locked to its saver, so the rename is where a
     # cross-account name collision surfaces. A raw access-denied naming the GUID temp file does
     # not tell the operator which secret failed or which account it is running as.
+    # A destination has to exist before there is anything to collide with, so this saves once
+    # first and fails the swap on the re-save.
     $path = Join-Path $TestDrive 'locked'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
-    Mock -CommandName Move-Item -ModuleName PrtgSensorKit -MockWith {
+    Save-PrtgSecret -Name 'Owned' -Secret (ConvertTo-SecureString 'original' -AsPlainText -Force) `
+      -Path $path -AllowUnprotected -WarningAction SilentlyContinue
+    Mock -CommandName Move-PrtgFileAtomic -ModuleName PrtgSensorKit -MockWith {
       throw [System.UnauthorizedAccessException]::new('Access to the path is denied.')
     }
     $err = { Save-PrtgSecret -Name 'Owned' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) `
         -Path $path -AllowUnprotected -WarningAction SilentlyContinue -ErrorAction Stop } |
       Should -Throw -ExpectedMessage "*Failed to replace secret 'Owned'*" -PassThru
     $err.Exception.Message | Should -BeLike '*belongs to another account*'
+    @(Get-ChildItem -LiteralPath $path -Filter '*.tmp') | Should -BeNullOrEmpty
+  }
+
+  It 'does not blame a collision for a failure that never reached the swap' {
+    # A full disk while writing the temp file is not a name collision. Reporting one would tell
+    # the operator to delete a secret as an administrator - and on a first save there is no
+    # destination to delete, while on a re-save the one they would delete is healthy.
+    $path = Join-Path $TestDrive 'nocollision'
+    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    Mock -CommandName Export-Clixml -ModuleName PrtgSensorKit -MockWith {
+      throw [System.IO.IOException]::new('There is not enough space on the disk.')
+    }
+    $err = { Save-PrtgSecret -Name 'Fresh' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) `
+        -Path $path -AllowUnprotected -WarningAction SilentlyContinue -ErrorAction Stop } |
+      Should -Throw -PassThru
+
+    $err.Exception.Message | Should -Not -BeLike '*belongs to another account*'
+    $err.Exception.Message | Should -BeLike '*not enough space*'
     @(Get-ChildItem -LiteralPath $path -Filter '*.tmp') | Should -BeNullOrEmpty
   }
 
@@ -348,5 +371,112 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
     Set-Content -LiteralPath (Join-Path $path 'Odd.clixml') -Value '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><SS>NOT-HEX-ZZZZ</SS></Objs>'
     { Get-PrtgSecret -Name 'Odd' -Path $path -AllowUnprotected -ErrorAction Stop } |
       Should -Throw -ExpectedMessage '*same Windows account and machine*'
+  }
+}
+
+Describe 'Save-PrtgSecret through the shared atomic writer' {
+  It 'sweeps a stale temp file from the current naming generation' {
+    # The shared writer derives the temp name from the full leaf, so this secret's temps are now
+    # '<Name>.clixml.<guid>.tmp'. The legacy generation is covered by the sweep test above.
+    $path = Join-Path $TestDrive 'stalecurrent'
+    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $stale = Join-Path $path 'Current.clixml.deadbeef.tmp'
+    $other = Join-Path $path 'Other.clixml.deadbeef.tmp'
+    Set-Content -LiteralPath $stale -Value 'leftover'
+    Set-Content -LiteralPath $other -Value 'not mine'
+    foreach ($f in $stale, $other) {
+      (Get-Item -LiteralPath $f).LastWriteTimeUtc = [DateTime]::UtcNow.AddHours(-2)
+    }
+
+    Save-PrtgSecret -Name 'Current' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) `
+      -Path $path -AllowUnprotected -WarningAction SilentlyContinue
+
+    Test-Path -LiteralPath $stale | Should -BeFalse
+    Test-Path -LiteralPath $other | Should -BeTrue
+  }
+
+  It 'reads back a SecureString written at the previous serialization depth' {
+    # Before this cmdlet shared the writer it exported at Export-Clixml's implicit depth of 2
+    # rather than the writer's 5. Secrets already on disk must keep reading back.
+    $path = Join-Path $TestDrive 'depthsecure'
+    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    (ConvertTo-SecureString 'legacy-token' -AsPlainText -Force) |
+      Export-Clixml -LiteralPath (Join-Path $path 'OldSecure.clixml')
+
+    Get-PrtgSecret -Name 'OldSecure' -Path $path -AllowUnprotected -AsPlainText |
+      Should -Be 'legacy-token'
+  }
+
+  It 'reads back a PSCredential written at the previous serialization depth' {
+    $path = Join-Path $TestDrive 'depthcred'
+    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $cred = [System.Management.Automation.PSCredential]::new(
+      'olduser', (ConvertTo-SecureString 'legacy-pass' -AsPlainText -Force))
+    $cred | Export-Clixml -LiteralPath (Join-Path $path 'OldCred.clixml')
+
+    $got = Get-PrtgSecret -Name 'OldCred' -Path $path -AllowUnprotected
+    $got.UserName | Should -Be 'olduser'
+    $got.GetNetworkCredential().Password | Should -Be 'legacy-pass'
+  }
+
+  It 'explains the collision when the destination is genuinely held open' -Tag 'Windows' -Skip:(-not $onWindows) {
+    # The mocked collision test above proves the wording; this one proves the dispatch. The swap
+    # now happens inside the shared writer, whose own cleanup catch runs first, so this arm sees
+    # a REAL [System.IO.File]::Replace failure only after a rethrow - and Windows PowerShell 5.1
+    # is documented to misdispatch a multi-type catch. Nothing is mocked here on purpose.
+    $path = Join-Path $TestDrive 'heldopen'
+    Save-PrtgSecret -Name 'Held' -Secret (ConvertTo-SecureString 'original' -AsPlainText -Force) `
+      -Path $path -WarningAction SilentlyContinue
+    $dest = Join-Path $path 'Held.clixml'
+
+    $handle = [System.IO.FileStream]::new(
+      $dest,
+      [System.IO.FileMode]::Open,
+      [System.IO.FileAccess]::ReadWrite,
+      [System.IO.FileShare]::None)
+    try {
+      $err = { Save-PrtgSecret -Name 'Held' -Secret (ConvertTo-SecureString 'replacement' -AsPlainText -Force) `
+            -Path $path -WarningAction SilentlyContinue -ErrorAction Stop } |
+        Should -Throw -ExpectedMessage "*Failed to replace secret 'Held'*" -PassThru
+      $err.Exception.Message | Should -BeLike '*belongs to another account*'
+      # The point of the wrapper: the operator must not be shown the GUID temp file instead.
+      $err.Exception.Message | Should -Not -BeLike '*.tmp*'
+    } finally {
+      $handle.Dispose()
+    }
+
+    @(Get-ChildItem -LiteralPath $path -Filter '*.tmp') | Should -BeNullOrEmpty
+    Get-PrtgSecret -Name 'Held' -Path $path -AsPlainText | Should -Be 'original'
+  }
+}
+
+Describe 'Secret store folder resolution through the public cmdlets' {
+  It 'reading a missing secret does not create the store folder' {
+    $path = Join-Path $TestDrive "neverread-$(Get-Random)"
+    { Get-PrtgSecret -Name 'Nope' -Path $path -AllowUnprotected -ErrorAction Stop } |
+      Should -Throw -ExpectedMessage "*not found*"
+    Test-Path -LiteralPath $path | Should -BeFalse
+  }
+
+  It 'lands a relative -Path under the PowerShell location on a first save and a re-save' {
+    # The resolver deliberately leaves a relative path alone; every consumer below it goes
+    # through the PowerShell provider, which resolves against the current LOCATION rather than
+    # the process working directory.
+    $base = Join-Path $TestDrive "relsecret-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $base -Force)
+    Push-Location $base
+    try {
+      Save-PrtgSecret -Name 'Rel' -Secret (ConvertTo-SecureString 'first' -AsPlainText -Force) `
+        -Path 'store' -AllowUnprotected -WarningAction SilentlyContinue
+      Test-Path -LiteralPath (Join-Path $base 'store/Rel.clixml') | Should -BeTrue
+      Get-PrtgSecret -Name 'Rel' -Path 'store' -AllowUnprotected -AsPlainText | Should -Be 'first'
+
+      Save-PrtgSecret -Name 'Rel' -Secret (ConvertTo-SecureString 'second' -AsPlainText -Force) `
+        -Path 'store' -AllowUnprotected -WarningAction SilentlyContinue
+      Get-PrtgSecret -Name 'Rel' -Path 'store' -AllowUnprotected -AsPlainText | Should -Be 'second'
+      @(Get-ChildItem -LiteralPath (Join-Path $base 'store') -Filter '*.tmp') | Should -BeNullOrEmpty
+    } finally {
+      Pop-Location
+    }
   }
 }

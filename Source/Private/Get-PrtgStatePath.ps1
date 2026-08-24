@@ -1,12 +1,10 @@
 function Get-PrtgDataPath {
   <#
   .SYNOPSIS
-    Resolves the base folder for an on-disk store (State, Logs).
+    Resolves the base folder for an on-disk store (State, Logs, Secrets).
   .DESCRIPTION
-    Single definition of the platform fallback shared by the state and log stores:
-    '$env:ProgramData\PrtgSensorKit\<Store>' on Windows, a temp folder elsewhere. The
-    secret store keeps its own resolution on purpose - its non-Windows behavior is gated
-    behind -AllowUnprotected rather than falling back silently.
+    Single definition of the platform fallback shared by the state, log, and secret stores:
+    '$env:ProgramData\PrtgSensorKit\<Store>' on Windows, a temp folder elsewhere.
   #>
   [CmdletBinding()]
   [OutputType([string])]
@@ -25,9 +23,9 @@ function Get-PrtgStatePath {
     Resolves the sensor state store folder and ensures it exists.
   .DESCRIPTION
     Returns the folder used by Save/Get/Clear-PrtgSensorState: an explicit -Path override,
-    or '$env:ProgramData\PrtgSensorKit\State' on Windows and a temp folder elsewhere
-    (same fallback pattern as the secret store). Creates the folder on first use. State is
-    not secret, so unlike the secret store there is no DPAPI/ACL handling here.
+    or '$env:ProgramData\PrtgSensorKit\State' on Windows and a temp folder elsewhere (the same
+    Get-PrtgDataPath fallback the log and secret stores use). Creates the folder on first use.
+    State is not secret, so unlike the secret store there is no DPAPI/ACL handling here.
   #>
   [CmdletBinding()]
   [OutputType([string])]

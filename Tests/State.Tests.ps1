@@ -7,6 +7,12 @@ BeforeAll {
 . $PSScriptRoot/_TestHelpers.ps1
 $onWindows = Test-OnWindowsHost
 
+# Also discovery-time. The mixed-kind ordering tests only discriminate where the host's UTC
+# offset is nonzero: at offset zero a Local-marked and a Utc-marked timestamp compare identically
+# on the raw and the normalized path, so the tests would pass without the fix and guard nothing.
+# The tie assertion below carries the offset-independent half of the rule.
+$noUtcOffset = ([TimeZoneInfo]::Local.GetUtcOffset([DateTime]::UtcNow) -eq [TimeSpan]::Zero)
+
 Describe 'Save/Get-PrtgSensorState round-trip' {
   BeforeEach { $dir = Join-Path $TestDrive "state-$(Get-Random)" }
 
@@ -553,6 +559,58 @@ Describe 'A caller script block sees its OWN variables inside the state lock' {
     $seen.DeleteLockOnRelease | Should -Be 'caller-delete'
   }
 
+  It 'does not bind EITHER frame when the block crosses the envelope and the lock' {
+    # Two frames now sit between a cmdlet and its block: Invoke-PrtgStateOperation above
+    # Invoke-PrtgStateLock, both in the dynamic chain '& $block' resolves through. The prefix
+    # assertions in Private.Tests.ps1 check that neither frame declares a colliding NAME;
+    # this checks that the prefixes actually protect the values, through both frames at once.
+    $dir = Join-Path $TestDrive "twoframe-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $dir -Force)
+
+    $seen = InModuleScope PrtgSensorKit -Parameters @{ StorePath = $dir } {
+      param($StorePath)
+      # Every name either frame could plausibly have wanted, set to a value only this scope has.
+      $Key = 'caller-key'
+      $Path = 'caller-path'
+      $file = 'caller-file'
+      $LockFile = 'caller-lockfile'
+      $State = 'caller-state'
+      $TimeoutSeconds = 999
+      $Force = 'caller-force'
+      $ScriptBlock = 'caller-scriptblock'
+      $DeleteLockOnRelease = 'caller-delete'
+
+      Invoke-PrtgStateOperation -PrtgOpKey 'twoframe' -PrtgOpPath $StorePath -PrtgOpTimeout 5 -PrtgOpBlock {
+        param($PrtgOpState)
+        [PSCustomObject]@{
+          Key                 = $Key
+          Path                = $Path
+          File                = $file
+          LockFile            = $LockFile
+          State               = $State
+          TimeoutSeconds      = $TimeoutSeconds
+          Force               = $Force
+          ScriptBlock         = $ScriptBlock
+          DeleteLockOnRelease = $DeleteLockOnRelease
+          Resolved            = $PrtgOpState.File
+        }
+      }
+    }
+
+    $seen.Key | Should -Be 'caller-key'
+    $seen.Path | Should -Be 'caller-path'
+    $seen.File | Should -Be 'caller-file'
+    $seen.LockFile | Should -Be 'caller-lockfile'
+    $seen.State | Should -Be 'caller-state'
+    $seen.TimeoutSeconds | Should -Be 999
+    $seen.Force | Should -Be 'caller-force'
+    $seen.ScriptBlock | Should -Be 'caller-scriptblock'
+    $seen.DeleteLockOnRelease | Should -Be 'caller-delete'
+    # The resolved paths reach the block as an explicit argument, not by dynamic lookup, so
+    # the caller's own $file above is untouched by it.
+    $seen.Resolved | Should -Be (Join-Path $dir 'twoframe.clixml')
+  }
+
   It 'still honours a non-default -TimeoutSeconds and -Force on the public cmdlets' {
     $dir = Join-Path $TestDrive "state-lockargs-$(Get-Random)"
     Save-PrtgSensorState -Key 'k' -Value 1 -Path $dir -TimeoutSeconds 3
@@ -563,5 +621,207 @@ Describe 'A caller script block sees its OWN variables inside the state lock' {
       Should -Be 'fetched'
     Clear-PrtgSensorState -Key 'k' -Path $dir -TimeoutSeconds 3
     Test-Path -LiteralPath (Join-Path $dir 'k.clixml') | Should -BeFalse
+  }
+}
+
+Describe 'Corruption warnings the operator relies on' {
+  # Characterization. The consequence clause is the operator's only signal about what happens to
+  # their data next, the noun is the framing each cmdlet uses for the file, and the cmdlet name is
+  # how the responsible sensor is found when several run at once. All three are operator-facing
+  # contract, so they are pinned here per cmdlet rather than tested as one generic "warns" case.
+  BeforeEach { $dir = Join-Path $TestDrive "warn-$(Get-Random)" }
+
+  Context 'an unreadable file' {
+    It 'Save-PrtgSensorState says the state file will be replaced' {
+      [void] (New-Item -ItemType Directory -Path $dir -Force)
+      Set-Content -LiteralPath (Join-Path $dir 'badsave.clixml') -Value 'this is not clixml'
+
+      Save-PrtgSensorState -Key 'badsave' -Value 'recovered' -Path $dir -WarningVariable warnings 3>$null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Save-PrtgSensorState: existing state file '*badsave.clixml' is unreadable and will be replaced. (*)"
+    }
+
+    It 'Get-PrtgSensorState says the state file is treated as empty' {
+      [void] (New-Item -ItemType Directory -Path $dir -Force)
+      Set-Content -LiteralPath (Join-Path $dir 'badget.clixml') -Value 'this is not clixml'
+
+      Get-PrtgSensorState -Key 'badget' -Path $dir -WarningVariable warnings 3>$null | Out-Null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Get-PrtgSensorState: state file '*badget.clixml' is unreadable, treating it as empty. (*)"
+    }
+
+    It 'Clear-PrtgSensorState says the state file will be deleted, and deletes it' {
+      [void] (New-Item -ItemType Directory -Path $dir -Force)
+      $file = Join-Path $dir 'badclear.clixml'
+      Set-Content -LiteralPath $file -Value 'this is not clixml'
+
+      Clear-PrtgSensorState -Key 'badclear' -Path $dir -MaxAge (New-TimeSpan -Minutes 5) `
+        -WarningVariable warnings 3>$null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Clear-PrtgSensorState: state file '*badclear.clixml' is unreadable and will be deleted. (*)"
+      # The clause promises deletion, so the promise is asserted alongside the wording.
+      Test-Path -LiteralPath $file | Should -BeFalse
+    }
+
+    It 'Use-PrtgCachedResult says the cache file is refetched' {
+      [void] (New-Item -ItemType Directory -Path $dir -Force)
+      Set-Content -LiteralPath (Join-Path $dir 'badcache.clixml') -Value 'this is not clixml'
+
+      $value = Use-PrtgCachedResult -Key 'badcache' -MaxAge (New-TimeSpan -Minutes 5) -Path $dir `
+        -WarningVariable warnings 3>$null { 'refetched' }
+
+      $value | Should -Be 'refetched'
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Use-PrtgCachedResult: cache file '*badcache.clixml' is unreadable, refetching. (*)"
+    }
+  }
+
+  Context 'malformed entries inside a readable file' {
+    # One valid entry and two unusable ones, so the reported count discriminates: a warning that
+    # merely said "some entries" would pass a looser assertion.
+    BeforeEach {
+      $script:MakePartialFile = {
+        param([string]$Folder, [string]$Key)
+        [void] (New-Item -ItemType Directory -Path $Folder -Force)
+        @(
+          [PSCustomObject]@{ Value = 'good'; Timestamp = [DateTime]::UtcNow }
+          [PSCustomObject]@{ Value = 'no timestamp property' }
+          'not an entry object at all'
+        ) | Export-Clixml -LiteralPath (Join-Path $Folder "$Key.clixml") -Depth 5
+      }
+    }
+
+    It 'Save-PrtgSensorState reports the dropped count for a state file' {
+      & $script:MakePartialFile $dir 'partsave'
+
+      Save-PrtgSensorState -Key 'partsave' -Value 'new' -Path $dir -WarningVariable warnings 3>$null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Save-PrtgSensorState: state file '*partsave.clixml' had 2 malformed entries (corrupted on disk), ignoring them."
+    }
+
+    It 'Get-PrtgSensorState reports the dropped count for a state file' {
+      & $script:MakePartialFile $dir 'partget'
+
+      Get-PrtgSensorState -Key 'partget' -Path $dir -WarningVariable warnings 3>$null | Out-Null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Get-PrtgSensorState: state file '*partget.clixml' had 2 malformed entries (corrupted on disk), ignoring them."
+    }
+
+    It 'Clear-PrtgSensorState reports the dropped count for a state file' {
+      & $script:MakePartialFile $dir 'partclear'
+
+      Clear-PrtgSensorState -Key 'partclear' -Path $dir -MaxAge (New-TimeSpan -Hours 1) `
+        -WarningVariable warnings 3>$null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Clear-PrtgSensorState: state file '*partclear.clixml' had 2 malformed entries (corrupted on disk), ignoring them."
+    }
+
+    It 'Use-PrtgCachedResult reports the dropped count for a cache file' {
+      & $script:MakePartialFile $dir 'partcache'
+
+      $value = Use-PrtgCachedResult -Key 'partcache' -MaxAge (New-TimeSpan -Minutes 5) -Path $dir `
+        -WarningVariable warnings 3>$null { 'refetched' }
+
+      $value | Should -Be 'good'
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Use-PrtgCachedResult: cache file '*partcache.clixml' had 2 malformed entries (corrupted on disk), ignoring them."
+    }
+  }
+}
+
+Describe 'Get-PrtgSensorState names one newest entry on both paths' {
+  BeforeAll {
+    # A history whose raw timestamp comparison and whose UTC comparison point opposite ways.
+    # Placing the Local-marked entry half an offset from the Utc-marked one produces that
+    # disagreement whichever sign the host's offset has: the Local entry's real instant lands
+    # behind the Utc one under a positive offset and ahead of it under a negative one, while
+    # the raw values always say the opposite. 'stale' is far enough out to be dropped by any
+    # plausible -MaxAge, so one history exercises filtering and ordering together.
+    function New-MixedKindHistory {
+      [OutputType([PSCustomObject])]
+      param([string]$Folder, [string]$Key)
+
+      [void] (New-Item -ItemType Directory -Path $Folder -Force)
+      $utcOffset = [TimeZoneInfo]::Local.GetUtcOffset([DateTime]::UtcNow)
+      $anchor = [DateTime]::UtcNow
+      $localRaw = [DateTime]::SpecifyKind($anchor.AddTicks([long]($utcOffset.Ticks / 2)), [DateTimeKind]::Local)
+
+      @(
+        [PSCustomObject]@{ Value = 'stale'; Timestamp = $anchor.AddDays(-10) }
+        [PSCustomObject]@{ Value = 'utc-marked'; Timestamp = $anchor }
+        [PSCustomObject]@{ Value = 'local-marked'; Timestamp = $localRaw }
+      ) | Export-Clixml -LiteralPath (Join-Path $Folder "$Key.clixml") -Depth 5
+
+      [PSCustomObject]@{
+        Offset = $utcOffset
+        Newest = if ($utcOffset.Ticks -gt 0) { 'utc-marked' } else { 'local-marked' }
+      }
+    }
+  }
+
+  BeforeEach { $dir = Join-Path $TestDrive "order-$(Get-Random)" }
+
+  It 'agrees with -Latest on a history holding both a UTC-marked and a local-marked timestamp' -Skip:$noUtcOffset {
+    $expected = New-MixedKindHistory -Folder $dir -Key 'mixed'
+
+    $fromHistory = @(Get-PrtgSensorState -Key 'mixed' -Path $dir)[0].Value
+    $fromLatest = Get-PrtgSensorState -Key 'mixed' -Path $dir -Latest
+
+    $fromHistory | Should -Be $fromLatest
+    $fromHistory | Should -Be $expected.Newest
+  }
+
+  It 'filters by age and orders by the same clock' -Skip:$noUtcOffset {
+    $expected = New-MixedKindHistory -Folder $dir -Key 'aged'
+    $maxAge = New-TimeSpan -Days 1
+
+    $kept = @(Get-PrtgSensorState -Key 'aged' -Path $dir -MaxAge $maxAge)
+
+    $kept.Value | Should -Not -Contain 'stale'
+    $kept[0].Value | Should -Be $expected.Newest
+    Get-PrtgSensorState -Key 'aged' -Path $dir -MaxAge $maxAge -Latest | Should -Be $expected.Newest
+  }
+
+  It 'names the last-appended entry as newest when timestamps are identical' {
+    # Two saves inside one clock tick are enough to produce this on an ordinary probe; five
+    # entries because Sort-Object can happen to leave a shorter list in its input order.
+    [void] (New-Item -ItemType Directory -Path $dir -Force)
+    $tick = [DateTime]::UtcNow
+    @(1..5 | ForEach-Object { [PSCustomObject]@{ Value = "e$_"; Timestamp = $tick } }) |
+      Export-Clixml -LiteralPath (Join-Path $dir 'tie.clixml') -Depth 5
+
+    @(Get-PrtgSensorState -Key 'tie' -Path $dir)[0].Value | Should -Be 'e5'
+    Get-PrtgSensorState -Key 'tie' -Path $dir -Latest | Should -Be 'e5'
+  }
+}
+
+Describe 'Corruption warnings cross the state lock frame' {
+  # The warnings are raised one frame deeper than the cmdlet that owns them, so the two ways an
+  # operator controls them have to keep working through that frame. The per-clause assertions in
+  # 'Corruption warnings the operator relies on' cover the collecting half via -WarningVariable;
+  # this covers the silencing half, for all four cmdlets at once.
+  BeforeEach {
+    $dir = Join-Path $TestDrive "suppress-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $dir -Force)
+    foreach ($key in 'supsave', 'supget', 'supclear', 'supcache') {
+      Set-Content -LiteralPath (Join-Path $dir "$key.clixml") -Value 'this is not clixml'
+    }
+  }
+
+  It 'emits nothing on the warning stream under -WarningAction SilentlyContinue' {
+    $records = @(
+      & { Save-PrtgSensorState -Key 'supsave' -Value 1 -Path $dir -WarningAction SilentlyContinue } 3>&1
+      & { Get-PrtgSensorState -Key 'supget' -Path $dir -WarningAction SilentlyContinue } 3>&1
+      & { Clear-PrtgSensorState -Key 'supclear' -Path $dir -MaxAge (New-TimeSpan -Minutes 5) -WarningAction SilentlyContinue } 3>&1
+      & { Use-PrtgCachedResult -Key 'supcache' -MaxAge (New-TimeSpan -Minutes 5) -Path $dir -WarningAction SilentlyContinue { 'v' } } 3>&1
+    ) | Where-Object { $_ -is [System.Management.Automation.WarningRecord] }
+
+    @($records).Count | Should -Be 0
   }
 }
