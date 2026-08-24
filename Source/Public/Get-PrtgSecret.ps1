@@ -63,10 +63,8 @@ function Get-PrtgSecret {
     throw "PrtgSensorKit secret storage uses Windows DPAPI and NTFS ACLs; it is only available on Windows. Pass -AllowUnprotected to read an OBFUSCATED (not encrypted) development secret."
   }
 
-  if ([string]::IsNullOrEmpty($Path)) {
-    $Path = if ($onWindows) { Join-Path $env:ProgramData 'PrtgSensorKit\Secrets' }
-            else { Join-Path ([System.IO.Path]::GetTempPath()) 'PrtgSensorKit/Secrets' }
-  }
+  # Resolution only: reading never creates the store folder, so a failed read leaves nothing.
+  $Path = Get-PrtgSecretPath -Path $Path
 
   $file = Join-Path $Path "$Name.clixml"
   if (-not (Test-Path -LiteralPath $file)) {

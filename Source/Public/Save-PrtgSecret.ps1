@@ -87,11 +87,10 @@ function Save-PrtgSecret {
     Write-Warning "Save-PrtgSecret: off Windows the secret is only OBFUSCATED, NOT encrypted (DPAPI is unavailable). Anyone who can read '$Name' can recover it. Use for development only - never for real credentials."
   }
 
-  if ([string]::IsNullOrEmpty($Path)) {
-    $Path = if ($onWindows) { Join-Path $env:ProgramData 'PrtgSensorKit\Secrets' }
-            else { Join-Path ([System.IO.Path]::GetTempPath()) 'PrtgSensorKit/Secrets' }
-  }
+  $Path = Get-PrtgSecretPath -Path $Path
 
+  # Creation stays here rather than in the resolver, which only answers where the secret lives:
+  # this is the one caller that wants the folder, and reading must leave nothing behind.
   if (-not (Test-Path -LiteralPath $Path)) {
     [void] (New-Item -ItemType Directory -Path $Path -Force)
   }

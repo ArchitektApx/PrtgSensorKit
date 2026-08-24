@@ -20,6 +20,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared writer's depth of 5 instead of `Export-Clixml`'s implicit 2; secrets written before
   this release read back unchanged.
 
+- **The secret store folder is resolved in one place.** `Save-PrtgSecret` and `Get-PrtgSecret`
+  each resolved it inline with an identical copy of the same code. Where a secret lives is now
+  answered by a single private resolver, and that answer is covered by tests that need no DPAPI.
+  The resolved folder is unchanged, on Windows and off it, and reading a secret still never
+  creates the folder.
+
 ### Fixed
 
 - **`Get-PrtgSensorState` can no longer name two different entries as the newest one.** The

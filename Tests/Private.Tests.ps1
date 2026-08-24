@@ -117,3 +117,46 @@ Describe 'Block-passing frame parameter names cannot shadow a caller block varia
     }
   }
 }
+
+Describe 'Get-PrtgSecretPath' {
+  # The whole point of the resolver: through the public seam this behaviour is reachable only via
+  # DPAPI-dependent cmdlets, which is why parts of the secret suite pass only on the VM after a
+  # console logon. These three need no DPAPI, no console logon, and no secret ever saved.
+  It 'returns the ProgramData default on Windows' {
+    InModuleScope PrtgSensorKit {
+      Mock Test-PrtgWindows -MockWith { $true }
+      $saved = $env:ProgramData
+      try {
+        $env:ProgramData = Join-Path ([System.IO.Path]::GetTempPath()) 'ProgramDataProbe'
+        Get-PrtgSecretPath | Should -Be (Join-Path $env:ProgramData 'PrtgSensorKit\Secrets')
+      } finally {
+        $env:ProgramData = $saved
+      }
+    }
+  }
+
+  It 'returns the temp-folder default off Windows' {
+    InModuleScope PrtgSensorKit {
+      Mock Test-PrtgWindows -MockWith { $false }
+      Get-PrtgSecretPath |
+        Should -Be (Join-Path ([System.IO.Path]::GetTempPath()) 'PrtgSensorKit/Secrets')
+    }
+  }
+
+  It 'passes an explicit path through untouched, relative one included' {
+    InModuleScope PrtgSensorKit {
+      Get-PrtgSecretPath -Path '/tmp/explicit-secrets' | Should -BeExactly '/tmp/explicit-secrets'
+      # Not resolved here on purpose: resolving would turn stored paths absolute and change the
+      # paths printed in the not-found and corrupt messages.
+      Get-PrtgSecretPath -Path 'relative/secrets' | Should -BeExactly 'relative/secrets'
+    }
+  }
+
+  It 'does not create the folder it resolves' {
+    InModuleScope PrtgSensorKit {
+      $probe = Join-Path ([System.IO.Path]::GetTempPath()) "secretpath-$(Get-Random)"
+      Get-PrtgSecretPath -Path $probe | Out-Null
+      Test-Path -LiteralPath $probe | Should -BeFalse
+    }
+  }
+}

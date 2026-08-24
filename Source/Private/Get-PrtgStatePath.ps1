@@ -3,10 +3,8 @@ function Get-PrtgDataPath {
   .SYNOPSIS
     Resolves the base folder for an on-disk store (State, Logs).
   .DESCRIPTION
-    Single definition of the platform fallback shared by the state and log stores:
-    '$env:ProgramData\PrtgSensorKit\<Store>' on Windows, a temp folder elsewhere. The
-    secret store keeps its own resolution on purpose - its non-Windows behavior is gated
-    behind -AllowUnprotected rather than falling back silently.
+    Single definition of the platform fallback shared by the state, log, and secret stores:
+    '$env:ProgramData\PrtgSensorKit\<Store>' on Windows, a temp folder elsewhere.
   #>
   [CmdletBinding()]
   [OutputType([string])]

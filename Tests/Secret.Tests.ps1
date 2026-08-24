@@ -428,3 +428,34 @@ Describe 'Save-PrtgSecret through the shared atomic writer' {
     Get-PrtgSecret -Name 'Held' -Path $path -AsPlainText | Should -Be 'original'
   }
 }
+
+Describe 'Secret store folder resolution through the public cmdlets' {
+  It 'reading a missing secret does not create the store folder' {
+    $path = Join-Path $TestDrive "neverread-$(Get-Random)"
+    { Get-PrtgSecret -Name 'Nope' -Path $path -AllowUnprotected -ErrorAction Stop } |
+      Should -Throw -ExpectedMessage "*not found*"
+    Test-Path -LiteralPath $path | Should -BeFalse
+  }
+
+  It 'lands a relative -Path under the PowerShell location on a first save and a re-save' {
+    # The resolver deliberately leaves a relative path alone; every consumer below it goes
+    # through the PowerShell provider, which resolves against the current LOCATION rather than
+    # the process working directory.
+    $base = Join-Path $TestDrive "relsecret-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $base -Force)
+    Push-Location $base
+    try {
+      Save-PrtgSecret -Name 'Rel' -Secret (ConvertTo-SecureString 'first' -AsPlainText -Force) `
+        -Path 'store' -AllowUnprotected -WarningAction SilentlyContinue
+      Test-Path -LiteralPath (Join-Path $base 'store/Rel.clixml') | Should -BeTrue
+      Get-PrtgSecret -Name 'Rel' -Path 'store' -AllowUnprotected -AsPlainText | Should -Be 'first'
+
+      Save-PrtgSecret -Name 'Rel' -Secret (ConvertTo-SecureString 'second' -AsPlainText -Force) `
+        -Path 'store' -AllowUnprotected -WarningAction SilentlyContinue
+      Get-PrtgSecret -Name 'Rel' -Path 'store' -AllowUnprotected -AsPlainText | Should -Be 'second'
+      @(Get-ChildItem -LiteralPath (Join-Path $base 'store') -Filter '*.tmp') | Should -BeNullOrEmpty
+    } finally {
+      Pop-Location
+    }
+  }
+}
