@@ -6,9 +6,9 @@ function Get-PrtgStateEntry {
     Shared by Save/Get/Clear-PrtgSensorState and Use-PrtgCachedResult: Import-Clixml the file,
     drop any entry that isn't a well-formed {Value, Timestamp} object, and warn about both kinds
     of damage. Corruption policy is decided here, so changing it is one edit and one review
-    rather than four. Callers supply only the three things this function cannot know: which
-    cmdlet is speaking, what that cmdlet calls the file, and what happens to an unreadable file
-    next.
+    rather than four. Callers supply only what this function cannot know: which cmdlet is
+    speaking, what that cmdlet calls the file, and what happens to an unreadable file next. The
+    noun comes in two parts because one caller qualifies it in one warning and not the other.
 
     Returns an [object[]] for zero, one and many entries alike, so a caller cannot silently get
     a scalar or nothing. Assign the result before wrapping it: '@(Get-PrtgStateEntry ...)'

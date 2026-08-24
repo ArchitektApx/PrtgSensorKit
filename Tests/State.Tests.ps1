@@ -751,9 +751,9 @@ Describe 'Get-PrtgSensorState names one newest entry on both paths' {
 
 Describe 'Corruption warnings cross the state lock frame' {
   # The warnings are raised one frame deeper than the cmdlet that owns them, so the two ways an
-  # operator controls them have to keep working through that frame: -WarningAction to silence
-  # them and -WarningVariable to collect them. Ticket 02's assertions cover the collecting half
-  # for every clause; this covers the silencing half for all four cmdlets at once.
+  # operator controls them have to keep working through that frame. The per-clause assertions in
+  # 'Corruption warnings the operator relies on' cover the collecting half via -WarningVariable;
+  # this covers the silencing half, for all four cmdlets at once.
   BeforeEach {
     $dir = Join-Path $TestDrive "suppress-$(Get-Random)"
     [void] (New-Item -ItemType Directory -Path $dir -Force)

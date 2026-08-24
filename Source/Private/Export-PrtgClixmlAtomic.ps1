@@ -55,7 +55,10 @@ function Export-PrtgClixmlAtomic {
   Remove-PrtgStaleTempFile -Folder $PrtgWriteFolder -Filter "$PrtgWriteLeaf.*.tmp"
 
   try {
-    [void] (New-Item -ItemType File -Path $PrtgWriteTemp -Force)
+    # New-Item has no -LiteralPath, and its -Path glob-interprets '[' and ']', which a store
+    # folder is allowed to contain. Escaped rather than swapped for a .NET create: [System.IO]
+    # resolves a relative path against the PROCESS working directory, not PowerShell's location.
+    [void] (New-Item -ItemType File -Path ([System.Management.Automation.WildcardPattern]::Escape($PrtgWriteTemp)) -Force)
     if ($PrtgWriteBeforeWrite) { & $PrtgWriteBeforeWrite $PrtgWriteTemp }
 
     $PrtgWriteInputObject | Export-Clixml -LiteralPath $PrtgWriteTemp -Depth $PrtgWriteDepth -Force

@@ -318,15 +318,36 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
     # The store folder is shared but each file is locked to its saver, so the rename is where a
     # cross-account name collision surfaces. A raw access-denied naming the GUID temp file does
     # not tell the operator which secret failed or which account it is running as.
+    # A destination has to exist before there is anything to collide with, so this saves once
+    # first and fails the swap on the re-save.
     $path = Join-Path $TestDrive 'locked'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
-    Mock -CommandName Move-Item -ModuleName PrtgSensorKit -MockWith {
+    Save-PrtgSecret -Name 'Owned' -Secret (ConvertTo-SecureString 'original' -AsPlainText -Force) `
+      -Path $path -AllowUnprotected -WarningAction SilentlyContinue
+    Mock -CommandName Move-PrtgFileAtomic -ModuleName PrtgSensorKit -MockWith {
       throw [System.UnauthorizedAccessException]::new('Access to the path is denied.')
     }
     $err = { Save-PrtgSecret -Name 'Owned' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) `
         -Path $path -AllowUnprotected -WarningAction SilentlyContinue -ErrorAction Stop } |
       Should -Throw -ExpectedMessage "*Failed to replace secret 'Owned'*" -PassThru
     $err.Exception.Message | Should -BeLike '*belongs to another account*'
+    @(Get-ChildItem -LiteralPath $path -Filter '*.tmp') | Should -BeNullOrEmpty
+  }
+
+  It 'does not blame a collision for a failure that never reached the swap' {
+    # A full disk while writing the temp file is not a name collision. Reporting one would tell
+    # the operator to delete a secret as an administrator - and on a first save there is no
+    # destination to delete, while on a re-save the one they would delete is healthy.
+    $path = Join-Path $TestDrive 'nocollision'
+    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    Mock -CommandName Export-Clixml -ModuleName PrtgSensorKit -MockWith {
+      throw [System.IO.IOException]::new('There is not enough space on the disk.')
+    }
+    $err = { Save-PrtgSecret -Name 'Fresh' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) `
+        -Path $path -AllowUnprotected -WarningAction SilentlyContinue -ErrorAction Stop } |
+      Should -Throw -PassThru
+
+    $err.Exception.Message | Should -Not -BeLike '*belongs to another account*'
+    $err.Exception.Message | Should -BeLike '*not enough space*'
     @(Get-ChildItem -LiteralPath $path -Filter '*.tmp') | Should -BeNullOrEmpty
   }
 

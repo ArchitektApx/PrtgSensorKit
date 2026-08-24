@@ -125,9 +125,17 @@ function Save-PrtgSecret {
     $writeArgs['PrtgWriteAfterSwap'] = $harden
   }
 
+  # Captured BEFORE the write, because a successful write creates the file. Only a destination
+  # that already exists can be the collision the message below describes, and the swap is the
+  # only step that can fail on one. Without this gate every access-denied and IO failure from
+  # preparing or writing the temp file - a read-only folder, a failing ACL, a full disk - would
+  # be reported as a name collision and send the operator to delete a healthy secret.
+  $destinationExisted = Test-Path -LiteralPath $file
+
   try {
     Export-PrtgClixmlAtomic @writeArgs
   } catch [System.UnauthorizedAccessException], [System.IO.IOException] {
+    if (-not $destinationExisted) { throw }
     # The store folder is shared, but each secret file is locked to the account that saved it,
     # so the swap is where a name collision between accounts surfaces. Without this the operator
     # only sees a raw access-denied naming the temporary file. This stays a wrapper rather than a

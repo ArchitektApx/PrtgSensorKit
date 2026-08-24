@@ -20,6 +20,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   shared writer's depth of 5 instead of `Export-Clixml`'s implicit 2; secrets written before
   this release read back unchanged.
 
+- **A failed secret save is no longer always blamed on a name collision.** The message that
+  explains a cross-account collision - *"The existing file belongs to another account or is held
+  open by another process. Delete it as an administrator"* - is now used only when the secret
+  file already existed, which is the only case that message can describe. A save that fails when
+  no secret file existed yet - against a read-only store folder, say - now reports the underlying
+  error instead of advising an operator to delete a secret that is not there.
+
 - **The secret store folder is resolved in one place.** `Save-PrtgSecret` and `Get-PrtgSecret`
   each resolved it inline with an identical copy of the same code. Where a secret lives is now
   answered by a single private resolver, and that answer is covered by tests that need no DPAPI.
