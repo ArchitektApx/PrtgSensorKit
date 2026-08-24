@@ -27,6 +27,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   no secret file existed yet - against a read-only store folder, say - now reports the underlying
   error instead of advising an operator to delete a secret that is not there.
 
+- **The four State store cmdlets now share one opening step.** `Save-`, `Get-`,
+  `Clear-PrtgSensorState` and `Use-PrtgCachedResult` each assembled the same sequence by hand
+  before they could do anything: work out where a key lives, then take the lock sidecar for it.
+  Four copies meant the last two concurrency fixes each had to be written and verified four
+  times, and the copies had already drifted once without any test noticing. That sequence now
+  has one owner, so the next fix to it lands once. Nothing changes for a sensor script: every
+  parameter keeps its name, type and default, every return value and every message is
+  unchanged, and each cmdlet still waits its own published time for the lock - ten seconds for
+  the three state cmdlets, thirty for the cache, which is deliberate and now pinned by a test.
+
 - **The secret store folder is resolved in one place.** `Save-PrtgSecret` and `Get-PrtgSecret`
   each resolved it inline with an identical copy of the same code. Where a secret lives is now
   answered by a single private resolver, and that answer is covered by tests that need no DPAPI.

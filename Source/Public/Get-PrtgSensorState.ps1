@@ -85,11 +85,10 @@ function Get-PrtgSensorState {
     [switch]$Force
   )
 
-  $state = Get-PrtgStateFile -Key $Key -Path $Path
-  $file = $state.File
-
-  $entries = Invoke-PrtgStateLock -PrtgLockFile $state.LockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force -PrtgLockBlock {
-    Get-PrtgStateEntry -File $file -Cmdlet 'Get-PrtgSensorState' -Noun 'state file' `
+  $entries = Invoke-PrtgStateOperation -PrtgOpKey $Key -PrtgOpPath $Path -PrtgOpTimeout $TimeoutSeconds `
+    -PrtgOpForce:$Force -PrtgOpBlock {
+    param($PrtgOpState)
+    Get-PrtgStateEntry -File $PrtgOpState.File -Cmdlet 'Get-PrtgSensorState' -Noun 'state file' `
       -UnreadableConsequence ', treating it as empty'
   }
 

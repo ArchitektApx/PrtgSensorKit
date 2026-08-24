@@ -88,6 +88,13 @@ Describe 'Block-passing frame parameter names cannot shadow a caller block varia
         @{ Name = 'Invoke-PrtgStateLock'
           Leaky = @('TimeoutSeconds', 'Force', 'ScriptBlock', 'LockFile', 'DeleteLockOnRelease')
         }
+        @{ Name = 'Invoke-PrtgStateOperation'
+          # A larger surface than the lock's, because this frame owns resolution too. These
+          # are the names it would plausibly have taken, not the full set the four blocks
+          # read; the prefix assertion below is what covers every name.
+          Leaky = @('Key', 'Path', 'File', 'LockFile', 'State', 'Block', 'ScriptBlock',
+                    'TimeoutSeconds', 'Timeout', 'Force', 'DeleteOnRelease', 'DeleteLockOnRelease')
+        }
         @{ Name = 'Export-PrtgClixmlAtomic'
           Leaky = @('InputObject', 'LiteralPath', 'Depth', 'Path', 'File', 'Folder', 'BeforeWrite', 'AfterSwap')
         }
@@ -106,6 +113,7 @@ Describe 'Block-passing frame parameter names cannot shadow a caller block varia
       $common = [System.Management.Automation.PSCmdlet]::CommonParameters
       $frames = @(
         @{ Name = 'Invoke-PrtgStateLock'; Prefix = 'PrtgLock' }
+        @{ Name = 'Invoke-PrtgStateOperation'; Prefix = 'PrtgOp' }
         @{ Name = 'Export-PrtgClixmlAtomic'; Prefix = 'PrtgWrite' }
       )
       foreach ($frame in $frames) {

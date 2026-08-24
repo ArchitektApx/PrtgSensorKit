@@ -559,6 +559,58 @@ Describe 'A caller script block sees its OWN variables inside the state lock' {
     $seen.DeleteLockOnRelease | Should -Be 'caller-delete'
   }
 
+  It 'does not bind EITHER frame when the block crosses the envelope and the lock' {
+    # Two frames now sit between a cmdlet and its block: Invoke-PrtgStateOperation above
+    # Invoke-PrtgStateLock, both in the dynamic chain '& $block' resolves through. The prefix
+    # assertions in Private.Tests.ps1 check that neither frame declares a colliding NAME;
+    # this checks that the prefixes actually protect the values, through both frames at once.
+    $dir = Join-Path $TestDrive "twoframe-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $dir -Force)
+
+    $seen = InModuleScope PrtgSensorKit -Parameters @{ StorePath = $dir } {
+      param($StorePath)
+      # Every name either frame could plausibly have wanted, set to a value only this scope has.
+      $Key = 'caller-key'
+      $Path = 'caller-path'
+      $file = 'caller-file'
+      $LockFile = 'caller-lockfile'
+      $State = 'caller-state'
+      $TimeoutSeconds = 999
+      $Force = 'caller-force'
+      $ScriptBlock = 'caller-scriptblock'
+      $DeleteLockOnRelease = 'caller-delete'
+
+      Invoke-PrtgStateOperation -PrtgOpKey 'twoframe' -PrtgOpPath $StorePath -PrtgOpTimeout 5 -PrtgOpBlock {
+        param($PrtgOpState)
+        [PSCustomObject]@{
+          Key                 = $Key
+          Path                = $Path
+          File                = $file
+          LockFile            = $LockFile
+          State               = $State
+          TimeoutSeconds      = $TimeoutSeconds
+          Force               = $Force
+          ScriptBlock         = $ScriptBlock
+          DeleteLockOnRelease = $DeleteLockOnRelease
+          Resolved            = $PrtgOpState.File
+        }
+      }
+    }
+
+    $seen.Key | Should -Be 'caller-key'
+    $seen.Path | Should -Be 'caller-path'
+    $seen.File | Should -Be 'caller-file'
+    $seen.LockFile | Should -Be 'caller-lockfile'
+    $seen.State | Should -Be 'caller-state'
+    $seen.TimeoutSeconds | Should -Be 999
+    $seen.Force | Should -Be 'caller-force'
+    $seen.ScriptBlock | Should -Be 'caller-scriptblock'
+    $seen.DeleteLockOnRelease | Should -Be 'caller-delete'
+    # The resolved paths reach the block as an explicit argument, not by dynamic lookup, so
+    # the caller's own $file above is untouched by it.
+    $seen.Resolved | Should -Be (Join-Path $dir 'twoframe.clixml')
+  }
+
   It 'still honours a non-default -TimeoutSeconds and -Force on the public cmdlets' {
     $dir = Join-Path $TestDrive "state-lockargs-$(Get-Random)"
     Save-PrtgSensorState -Key 'k' -Value 1 -Path $dir -TimeoutSeconds 3

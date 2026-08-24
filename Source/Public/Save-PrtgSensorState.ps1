@@ -73,7 +73,7 @@ function Save-PrtgSensorState {
     Clear-PrtgSensorState
   #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-    Justification = 'Value, Depth, and MaxEntries are used inside the script block passed to Invoke-PrtgStateLock; the analyzer cannot see into it.')]
+    Justification = 'Value, Depth, and MaxEntries are used inside the script block passed to Invoke-PrtgStateOperation; the analyzer cannot see into it.')]
   [CmdletBinding()]
   param(
     [Parameter(Mandatory = $true)]
@@ -103,10 +103,11 @@ function Save-PrtgSensorState {
     [switch]$Force
   )
 
-  $state = Get-PrtgStateFile -Key $Key -Path $Path
-  $file = $state.File
+  Invoke-PrtgStateOperation -PrtgOpKey $Key -PrtgOpPath $Path -PrtgOpTimeout $TimeoutSeconds `
+    -PrtgOpForce:$Force -PrtgOpBlock {
+    param($PrtgOpState)
+    $file = $PrtgOpState.File
 
-  Invoke-PrtgStateLock -PrtgLockFile $state.LockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force -PrtgLockBlock {
     $loaded = Get-PrtgStateEntry -File $file -Cmdlet 'Save-PrtgSensorState' -Noun 'state file' `
       -UnreadableNoun 'existing state file' -UnreadableConsequence ' and will be replaced'
     $entries = @($loaded)

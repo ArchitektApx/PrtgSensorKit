@@ -107,7 +107,7 @@ function Use-PrtgCachedResult {
     Clear-PrtgSensorState
   #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSReviewUnusedParameter', '',
-    Justification = 'MaxAge, ScriptBlock, Depth, and SkipNullCache are used inside the script block passed to Invoke-PrtgStateLock; the analyzer cannot see into it.')]
+    Justification = 'MaxAge, ScriptBlock, Depth, and SkipNullCache are used inside the script block passed to Invoke-PrtgStateOperation; the analyzer cannot see into it.')]
   [CmdletBinding()]
   param(
     [Parameter(Mandatory = $true)]
@@ -138,12 +138,13 @@ function Use-PrtgCachedResult {
     [switch]$Force
   )
 
-  $state = Get-PrtgStateFile -Key $Key -Path $Path
-  $file = $state.File
-
   # The lock is held across check + fetch + write on purpose: that is the entire fix for
   # the thundering-herd race the manual state pattern has.
-  Invoke-PrtgStateLock -PrtgLockFile $state.LockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force -PrtgLockBlock {
+  Invoke-PrtgStateOperation -PrtgOpKey $Key -PrtgOpPath $Path -PrtgOpTimeout $TimeoutSeconds `
+    -PrtgOpForce:$Force -PrtgOpBlock {
+    param($PrtgOpState)
+    $file = $PrtgOpState.File
+
     $loaded = Get-PrtgStateEntry -File $file -Cmdlet 'Use-PrtgCachedResult' -Noun 'cache file' `
       -UnreadableConsequence ', refetching'
     $entries = @($loaded)
