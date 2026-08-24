@@ -17,3 +17,16 @@ Tools/fuzz-failures/
 # IDEs
 .claude/
 .vscode/
+
+# VDD Artifacts
+CLAUDE.md
+.scratch/
+Docs/agents
+docs/agents
+Docs/adr/
+docs/adr/
+LOOP.md
+CONTEXT.md
+
+# Understand-Anything knowledge graph
+.ua/
