@@ -565,3 +565,114 @@ Describe 'A caller script block sees its OWN variables inside the state lock' {
     Test-Path -LiteralPath (Join-Path $dir 'k.clixml') | Should -BeFalse
   }
 }
+
+Describe 'Corruption warnings the operator relies on' {
+  # Characterization. The consequence clause is the operator's only signal about what happens to
+  # their data next, the noun is the framing each cmdlet uses for the file, and the cmdlet name is
+  # how the responsible sensor is found when several run at once. All three are operator-facing
+  # contract, so they are pinned here per cmdlet rather than tested as one generic "warns" case.
+  BeforeEach { $dir = Join-Path $TestDrive "warn-$(Get-Random)" }
+
+  Context 'an unreadable file' {
+    It 'Save-PrtgSensorState says the state file will be replaced' {
+      [void] (New-Item -ItemType Directory -Path $dir -Force)
+      Set-Content -LiteralPath (Join-Path $dir 'badsave.clixml') -Value 'this is not clixml'
+
+      Save-PrtgSensorState -Key 'badsave' -Value 'recovered' -Path $dir -WarningVariable warnings 3>$null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Save-PrtgSensorState: existing state file '*badsave.clixml' is unreadable and will be replaced. (*)"
+    }
+
+    It 'Get-PrtgSensorState says the state file is treated as empty' {
+      [void] (New-Item -ItemType Directory -Path $dir -Force)
+      Set-Content -LiteralPath (Join-Path $dir 'badget.clixml') -Value 'this is not clixml'
+
+      Get-PrtgSensorState -Key 'badget' -Path $dir -WarningVariable warnings 3>$null | Out-Null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Get-PrtgSensorState: state file '*badget.clixml' is unreadable, treating it as empty. (*)"
+    }
+
+    It 'Clear-PrtgSensorState says the state file will be deleted, and deletes it' {
+      [void] (New-Item -ItemType Directory -Path $dir -Force)
+      $file = Join-Path $dir 'badclear.clixml'
+      Set-Content -LiteralPath $file -Value 'this is not clixml'
+
+      Clear-PrtgSensorState -Key 'badclear' -Path $dir -MaxAge (New-TimeSpan -Minutes 5) `
+        -WarningVariable warnings 3>$null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Clear-PrtgSensorState: state file '*badclear.clixml' is unreadable and will be deleted. (*)"
+      # The clause promises deletion, so the promise is asserted alongside the wording.
+      Test-Path -LiteralPath $file | Should -BeFalse
+    }
+
+    It 'Use-PrtgCachedResult says the cache file is refetched' {
+      [void] (New-Item -ItemType Directory -Path $dir -Force)
+      Set-Content -LiteralPath (Join-Path $dir 'badcache.clixml') -Value 'this is not clixml'
+
+      $value = Use-PrtgCachedResult -Key 'badcache' -MaxAge (New-TimeSpan -Minutes 5) -Path $dir `
+        -WarningVariable warnings 3>$null { 'refetched' }
+
+      $value | Should -Be 'refetched'
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Use-PrtgCachedResult: cache file '*badcache.clixml' is unreadable, refetching. (*)"
+    }
+  }
+
+  Context 'malformed entries inside a readable file' {
+    # One valid entry and two unusable ones, so the reported count discriminates: a warning that
+    # merely said "some entries" would pass a looser assertion.
+    BeforeEach {
+      $script:MakePartialFile = {
+        param([string]$Folder, [string]$Key)
+        [void] (New-Item -ItemType Directory -Path $Folder -Force)
+        @(
+          [PSCustomObject]@{ Value = 'good'; Timestamp = [DateTime]::UtcNow }
+          [PSCustomObject]@{ Value = 'no timestamp property' }
+          'not an entry object at all'
+        ) | Export-Clixml -LiteralPath (Join-Path $Folder "$Key.clixml") -Depth 5
+      }
+    }
+
+    It 'Save-PrtgSensorState reports the dropped count for a state file' {
+      & $script:MakePartialFile $dir 'partsave'
+
+      Save-PrtgSensorState -Key 'partsave' -Value 'new' -Path $dir -WarningVariable warnings 3>$null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Save-PrtgSensorState: state file '*partsave.clixml' had 2 malformed entries (corrupted on disk), ignoring them."
+    }
+
+    It 'Get-PrtgSensorState reports the dropped count for a state file' {
+      & $script:MakePartialFile $dir 'partget'
+
+      Get-PrtgSensorState -Key 'partget' -Path $dir -WarningVariable warnings 3>$null | Out-Null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Get-PrtgSensorState: state file '*partget.clixml' had 2 malformed entries (corrupted on disk), ignoring them."
+    }
+
+    It 'Clear-PrtgSensorState reports the dropped count for a state file' {
+      & $script:MakePartialFile $dir 'partclear'
+
+      Clear-PrtgSensorState -Key 'partclear' -Path $dir -MaxAge (New-TimeSpan -Hours 1) `
+        -WarningVariable warnings 3>$null
+
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Clear-PrtgSensorState: state file '*partclear.clixml' had 2 malformed entries (corrupted on disk), ignoring them."
+    }
+
+    It 'Use-PrtgCachedResult reports the dropped count for a cache file' {
+      & $script:MakePartialFile $dir 'partcache'
+
+      $value = Use-PrtgCachedResult -Key 'partcache' -MaxAge (New-TimeSpan -Minutes 5) -Path $dir `
+        -WarningVariable warnings 3>$null { 'refetched' }
+
+      $value | Should -Be 'good'
+      (@($warnings) -join ' ') | Should -BeLike `
+        "Use-PrtgCachedResult: cache file '*partcache.clixml' had 2 malformed entries (corrupted on disk), ignoring them."
+    }
+  }
+}
