@@ -116,7 +116,7 @@ function Clear-PrtgSensorState {
       Remove-Item -LiteralPath $file -Force
       Write-Verbose "Cleared state '$Key' (no entries younger than $MaxAge, '$file' deleted)."
     } else {
-      Export-PrtgClixmlAtomic -InputObject $keep -LiteralPath $file -Depth $Depth
+      Export-PrtgClixmlAtomic -PrtgWriteInputObject $keep -PrtgWriteLiteralPath $file -PrtgWriteDepth $Depth
       Write-Verbose "Pruned state '$Key' to $($keep.Count) entries younger than $MaxAge."
     }
   }

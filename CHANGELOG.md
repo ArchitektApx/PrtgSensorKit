@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Save-PrtgSecret` now writes through the same crash-safe sequence as the state store.** It
+  kept a parallel copy of that sequence, so the last two crash-safety fixes each had to be made
+  twice, months apart. The shared writer gained a before-write and an after-swap hook, and the
+  secret store hardens its file ACL through those: the blob still never exists under inherited
+  permissions, and the destination is still re-locked after the swap. Nothing changes for a
+  sensor script. Two details worth knowing for anyone looking at the store folder: a secret's
+  temporary file is now named `<Name>.clixml.<guid>.tmp` rather than `<Name>.<guid>.tmp`, and
+  leftovers in both naming generations are swept. The secret payload is now serialized at the
+  shared writer's depth of 5 instead of `Export-Clixml`'s implicit 2; secrets written before
+  this release read back unchanged.
+
 ### Fixed
 
 - **`Get-PrtgSensorState` can no longer name two different entries as the newest one.** The

@@ -76,26 +76,43 @@ Describe 'Test-PrtgNumeric' {
   }
 }
 
-Describe 'Invoke-PrtgStateLock parameter names cannot shadow a caller block variable' {
+Describe 'Block-passing frame parameter names cannot shadow a caller block variable' {
+  # A function that invokes a caller-supplied block is a frame in the DYNAMIC scope chain the
+  # block resolves through - this frame first - so any unprefixed name it declares silently
+  # shadows the calling cmdlet's variable of the same name. The prefix is the only thing
+  # preventing that, and these two assertions are what keep a future parameter from reopening
+  # the hole. Every such frame in the module belongs in the tables below.
   It 'exposes no ordinary parameter name' {
-    # The block runs via '& $PrtgLockBlock' and resolves unqualified names up the DYNAMIC
-    # chain - this frame first - so any unprefixed name here silently shadows the caller's
-    # variable of the same name. The 'PrtgLock' prefix is the only thing preventing that,
-    # and this test is what keeps a future parameter from reopening the hole.
     InModuleScope PrtgSensorKit {
-      $names = (Get-Command Invoke-PrtgStateLock).Parameters.Keys
-      foreach ($leaky in 'TimeoutSeconds', 'Force', 'ScriptBlock', 'LockFile', 'DeleteLockOnRelease') {
-        $names | Should -Not -Contain $leaky
+      $frames = @(
+        @{ Name = 'Invoke-PrtgStateLock'
+          Leaky = @('TimeoutSeconds', 'Force', 'ScriptBlock', 'LockFile', 'DeleteLockOnRelease')
+        }
+        @{ Name = 'Export-PrtgClixmlAtomic'
+          Leaky = @('InputObject', 'LiteralPath', 'Depth', 'Path', 'File', 'Folder', 'BeforeWrite', 'AfterSwap')
+        }
+      )
+      foreach ($frame in $frames) {
+        $names = (Get-Command $frame.Name).Parameters.Keys
+        foreach ($leaky in $frame.Leaky) {
+          $names | Should -Not -Contain $leaky -Because "$($frame.Name) would shadow a block's own `$$leaky"
+        }
       }
     }
   }
 
-  It 'has every non-common parameter prefixed PrtgLock' {
+  It 'has every non-common parameter carrying its frame prefix' {
     InModuleScope PrtgSensorKit {
       $common = [System.Management.Automation.PSCmdlet]::CommonParameters
-      $own = (Get-Command Invoke-PrtgStateLock).Parameters.Keys | Where-Object { $_ -notin $common }
-      foreach ($name in $own) {
-        $name | Should -BeLike 'PrtgLock*'
+      $frames = @(
+        @{ Name = 'Invoke-PrtgStateLock'; Prefix = 'PrtgLock' }
+        @{ Name = 'Export-PrtgClixmlAtomic'; Prefix = 'PrtgWrite' }
+      )
+      foreach ($frame in $frames) {
+        $own = (Get-Command $frame.Name).Parameters.Keys | Where-Object { $_ -notin $common }
+        foreach ($name in $own) {
+          $name | Should -BeLike "$($frame.Prefix)*" -Because "$($frame.Name) invokes a caller-supplied block"
+        }
       }
     }
   }

@@ -120,7 +120,7 @@ function Save-PrtgSensorState {
       $entries = @($entries | Select-Object -Last $MaxEntries)
     }
 
-    Export-PrtgClixmlAtomic -InputObject $entries -LiteralPath $file -Depth $Depth
+    Export-PrtgClixmlAtomic -PrtgWriteInputObject $entries -PrtgWriteLiteralPath $file -PrtgWriteDepth $Depth
     Write-Verbose "Saved state '$Key' to '$file' ($($entries.Count) entries)."
   }
 }

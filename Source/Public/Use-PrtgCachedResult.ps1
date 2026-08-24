@@ -167,7 +167,7 @@ function Use-PrtgCachedResult {
     } else {
       # Written atomically: a corrupt cache entry would send every sensor on the probe back to
       # the source at once, which is the stampede this cmdlet exists to prevent.
-      Export-PrtgClixmlAtomic -LiteralPath $file -Depth $Depth -InputObject ([PSCustomObject]@{
+      Export-PrtgClixmlAtomic -PrtgWriteLiteralPath $file -PrtgWriteDepth $Depth -PrtgWriteInputObject ([PSCustomObject]@{
         Value     = $result
         Timestamp = [DateTime]::UtcNow
       })
