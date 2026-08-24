@@ -107,14 +107,9 @@ function Save-PrtgSensorState {
   $file = $state.File
 
   Invoke-PrtgStateLock -PrtgLockFile $state.LockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force -PrtgLockBlock {
-    $loaded = Get-PrtgStateEntry -File $file
-    if ($loaded.Unreadable) {
-      Write-Warning "Save-PrtgSensorState: existing state file '$file' is unreadable and will be replaced. ($($loaded.UnreadableMessage))"
-    }
-    if ($loaded.MalformedCount -gt 0) {
-      Write-Warning "Save-PrtgSensorState: state file '$file' had $($loaded.MalformedCount) malformed entries (corrupted on disk), ignoring them."
-    }
-    $entries = @($loaded.Entries)
+    $loaded = Get-PrtgStateEntry -File $file -Cmdlet 'Save-PrtgSensorState' -Noun 'state file' `
+      -UnreadableNoun 'existing state file' -UnreadableConsequence ' and will be replaced'
+    $entries = @($loaded)
 
     $entries += [PSCustomObject]@{
       Value     = $Value

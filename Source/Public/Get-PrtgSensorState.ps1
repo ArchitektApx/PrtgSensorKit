@@ -89,14 +89,8 @@ function Get-PrtgSensorState {
   $file = $state.File
 
   $entries = Invoke-PrtgStateLock -PrtgLockFile $state.LockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force -PrtgLockBlock {
-    $loaded = Get-PrtgStateEntry -File $file
-    if ($loaded.Unreadable) {
-      Write-Warning "Get-PrtgSensorState: state file '$file' is unreadable, treating it as empty. ($($loaded.UnreadableMessage))"
-    }
-    if ($loaded.MalformedCount -gt 0) {
-      Write-Warning "Get-PrtgSensorState: state file '$file' had $($loaded.MalformedCount) malformed entries (corrupted on disk), ignoring them."
-    }
-    $loaded.Entries
+    Get-PrtgStateEntry -File $file -Cmdlet 'Get-PrtgSensorState' -Noun 'state file' `
+      -UnreadableConsequence ', treating it as empty'
   }
 
   $entries = @($entries)

@@ -748,3 +748,28 @@ Describe 'Get-PrtgSensorState names one newest entry on both paths' {
     Get-PrtgSensorState -Key 'tie' -Path $dir -Latest | Should -Be 'e5'
   }
 }
+
+Describe 'Corruption warnings cross the state lock frame' {
+  # The warnings are raised one frame deeper than the cmdlet that owns them, so the two ways an
+  # operator controls them have to keep working through that frame: -WarningAction to silence
+  # them and -WarningVariable to collect them. Ticket 02's assertions cover the collecting half
+  # for every clause; this covers the silencing half for all four cmdlets at once.
+  BeforeEach {
+    $dir = Join-Path $TestDrive "suppress-$(Get-Random)"
+    [void] (New-Item -ItemType Directory -Path $dir -Force)
+    foreach ($key in 'supsave', 'supget', 'supclear', 'supcache') {
+      Set-Content -LiteralPath (Join-Path $dir "$key.clixml") -Value 'this is not clixml'
+    }
+  }
+
+  It 'emits nothing on the warning stream under -WarningAction SilentlyContinue' {
+    $records = @(
+      & { Save-PrtgSensorState -Key 'supsave' -Value 1 -Path $dir -WarningAction SilentlyContinue } 3>&1
+      & { Get-PrtgSensorState -Key 'supget' -Path $dir -WarningAction SilentlyContinue } 3>&1
+      & { Clear-PrtgSensorState -Key 'supclear' -Path $dir -MaxAge (New-TimeSpan -Minutes 5) -WarningAction SilentlyContinue } 3>&1
+      & { Use-PrtgCachedResult -Key 'supcache' -MaxAge (New-TimeSpan -Minutes 5) -Path $dir -WarningAction SilentlyContinue { 'v' } } 3>&1
+    ) | Where-Object { $_ -is [System.Management.Automation.WarningRecord] }
+
+    @($records).Count | Should -Be 0
+  }
+}

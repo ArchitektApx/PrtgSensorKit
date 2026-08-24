@@ -144,14 +144,9 @@ function Use-PrtgCachedResult {
   # The lock is held across check + fetch + write on purpose: that is the entire fix for
   # the thundering-herd race the manual state pattern has.
   Invoke-PrtgStateLock -PrtgLockFile $state.LockFile -PrtgLockTimeout $TimeoutSeconds -PrtgLockForce:$Force -PrtgLockBlock {
-    $loaded = Get-PrtgStateEntry -File $file
-    if ($loaded.Unreadable) {
-      Write-Warning "Use-PrtgCachedResult: cache file '$file' is unreadable, refetching. ($($loaded.UnreadableMessage))"
-    }
-    if ($loaded.MalformedCount -gt 0) {
-      Write-Warning "Use-PrtgCachedResult: cache file '$file' had $($loaded.MalformedCount) malformed entries (corrupted on disk), ignoring them."
-    }
-    $entries = @($loaded.Entries)
+    $loaded = Get-PrtgStateEntry -File $file -Cmdlet 'Use-PrtgCachedResult' -Noun 'cache file' `
+      -UnreadableConsequence ', refetching'
+    $entries = @($loaded)
 
     if ($entries.Count -gt 0) {
       # The file may hold a history written by Save-PrtgSensorState; this cmdlet itself
