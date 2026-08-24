@@ -118,6 +118,69 @@ Describe 'Block-passing frame parameter names cannot shadow a caller block varia
   }
 }
 
+Describe 'Published lock wait defaults' {
+  # Each of the four waits exists twice: the parameter declaration, and the '(default N)'
+  # clause of its help text. Nothing else fails if either copy drifts. The cache's 30 differs
+  # on purpose - sensors waiting on it hold out for the duration of a sibling's fetch, not
+  # for a quick file write - and unifying all four is exactly the drift this pin must catch.
+  BeforeAll {
+    # Shared marks the three that deliberately hold the same wait, which is the value the
+    # cache's help text quotes back when it explains why its own is longer.
+    $published = @(
+      @{ Cmdlet = 'Save-PrtgSensorState'; Seconds = 10; Shared = $true }
+      @{ Cmdlet = 'Get-PrtgSensorState'; Seconds = 10; Shared = $true }
+      @{ Cmdlet = 'Clear-PrtgSensorState'; Seconds = 10; Shared = $true }
+      @{ Cmdlet = 'Use-PrtgCachedResult'; Seconds = 30; Shared = $false }
+    )
+  }
+
+  It 'declares the wait each cmdlet publishes, and documents the same number' {
+    # Read from the declaration and the help, not observed: observing a default means holding
+    # the lock and waiting the whole period, which times the clock rather than the cmdlet.
+    foreach ($entry in $published) {
+      $ast = (Get-Command $entry.Cmdlet).ScriptBlock.Ast
+
+      $declared = @($ast.Body.ParamBlock.Parameters |
+          Where-Object { $_.Name.VariablePath.UserPath -eq 'TimeoutSeconds' })
+      $declared.Count | Should -Be 1 -Because "$($entry.Cmdlet) publishes a -TimeoutSeconds"
+
+      # Matched as a literal rather than cast from the extent text, so a drift to a computed
+      # default fails as an assertion instead of as a conversion error.
+      $literal = $declared[0].DefaultValue -as [System.Management.Automation.Language.ConstantExpressionAst]
+      $literal | Should -Not -BeNullOrEmpty `
+        -Because "$($entry.Cmdlet) publishes its wait as a literal default"
+      $literal.Value | Should -Be $entry.Seconds `
+        -Because "$($entry.Cmdlet) waits $($entry.Seconds) second(s) for the state lock"
+
+      $help = $ast.GetHelpContent().Parameters['TIMEOUTSECONDS']
+      $help | Should -Not -BeNullOrEmpty -Because "$($entry.Cmdlet) documents -TimeoutSeconds"
+      $clause = [regex]::Match($help, '\(default (\d+)')
+      $clause.Success | Should -BeTrue `
+        -Because "$($entry.Cmdlet) states its wait in a '(default N)' help clause"
+      [int]$clause.Groups[1].Value | Should -Be $entry.Seconds `
+        -Because "$($entry.Cmdlet) help must not keep a number its declaration has left behind"
+    }
+  }
+
+  It 'quotes the state cmdlets shared wait in the cache help' {
+    # Use-PrtgCachedResult justifies its 30 by naming the state cmdlets' 10 in prose. That is a
+    # third copy of their shared value and it would lie silently if they ever changed. The
+    # number comes from the table above, which the previous It has already bound to each
+    # declaration, so the prose reaches the declarations without a second AST walk of its own.
+    $shared = @($published | Where-Object { $_.Shared } | ForEach-Object { $_.Seconds } |
+        Select-Object -Unique)
+    $shared.Count | Should -Be 1 `
+      -Because 'the three state cmdlets share one wait, which is what the cache help names'
+
+    $help = (Get-Command Use-PrtgCachedResult).ScriptBlock.Ast.GetHelpContent().Parameters['TIMEOUTSECONDS']
+    $reference = [regex]::Match($help, "state cmdlets'\s+(\d+)")
+    $reference.Success | Should -BeTrue `
+      -Because 'the cache help explains its longer wait by naming the state cmdlets one'
+    [int]$reference.Groups[1].Value | Should -Be $shared[0] `
+      -Because 'the cache help must not keep a number the state cmdlets have left behind'
+  }
+}
+
 Describe 'Get-PrtgSecretPath' {
   # The whole point of the resolver: through the public seam this behaviour is reachable only via
   # DPAPI-dependent cmdlets, which is why parts of the secret suite pass only on the VM after a
