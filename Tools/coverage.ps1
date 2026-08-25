@@ -40,6 +40,7 @@ $pct = if ($cc.CommandsAnalyzedCount) { $cc.CommandsExecutedCount / $cc.Commands
 
 Write-Host ("Tests: {0} passed, {1} failed" -f $r.PassedCount, $r.FailedCount)
 Write-Host ("Coverage: {0}/{1} = {2:N1}%" -f $cc.CommandsExecutedCount, $cc.CommandsAnalyzedCount, $pct)
+Write-Host "A covered line is not a tested input: this counts commands executed, not cases tried."
 if ($cc.CommandsMissed.Count) {
   Write-Host "--- Missed ---"
   $cc.CommandsMissed | ForEach-Object { Write-Host ("  {0}: {1}" -f $_.Line, $_.Command) }
