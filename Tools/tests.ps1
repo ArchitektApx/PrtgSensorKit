@@ -10,10 +10,12 @@ param(
   [switch]$PassThru
 )
 
-# Force Pester v5+. On Windows PowerShell 5.1 the built-in Pester 3.4 would otherwise load and
-# New-PesterConfiguration would not exist, silently skipping the whole suite.
-Remove-Module Pester -Force -ErrorAction SilentlyContinue
-Import-Module Pester -MinimumVersion 5.0.0 -Force
+# Load exactly the pinned Pester and state which version resolved, so two runs can be compared.
+# A floor would let the run use whatever arrived on the host first, including the built-in
+# Pester 3.4 on Windows PowerShell 5.1, which has no New-PesterConfiguration and would silently
+# skip the whole suite.
+. (Join-Path $PSScriptRoot 'pester_pin.ps1')
+Import-PinnedPester
 
 # Join-Path's 3-argument form is PowerShell 7+ only; nest for Windows PowerShell 5.1.
 $testPath = Join-Path (Join-Path $PSScriptRoot '..') 'Tests' | Resolve-Path -ErrorAction SilentlyContinue

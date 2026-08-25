@@ -95,6 +95,62 @@ Describe 'New-PrtgChannel' {
   }
 }
 
+Describe 'New-PrtgChannel emits every accepted unit' {
+  # SpeedDisk and SpeedNet share the speed-companion branch with BytesBandwidth, and BytesFile
+  # shares the volume-size branch with BytesDisk; each unit has its own row regardless, because
+  # coverage counts executed commands, not the input space.
+  #
+  # Assertions are on the serialized output rather than the returned object. Binding a parameter
+  # and emitting it are different things, and only the second is what a sensor author sees.
+  BeforeEach { Clear-PrtgOutput }
+
+  It 'covers every unit the cmdlet accepts' {
+    # The table below is hand-maintained; a unit added to the ValidateSet without a row here
+    # would silently drop out of the input-space check.
+    $accepted = @((Get-Command New-PrtgChannel -Module PrtgSensorKit).Parameters['Unit'].Attributes |
+        Where-Object { $_ -is [System.Management.Automation.ValidateSetAttribute] }).ValidValues
+    $tabled = @('BytesBandwidth', 'BytesDisk', 'BytesFile', 'SpeedDisk', 'SpeedNet', 'Custom',
+      'Temperature', 'Percent', 'TimeResponse', 'TimeSeconds', 'TimeHours', 'Count', 'CPU')
+    (@($accepted | Sort-Object) -join ',') | Should -Be (@($tabled | Sort-Object) -join ',')
+  }
+
+  It 'unit <Unit> emits its value and exactly the fields that were set' -ForEach @(
+    @{ Unit = 'BytesBandwidth'; Companions = @{ SpeedSize = 'Mega'; SpeedTime = 'Second' } }
+    @{ Unit = 'BytesDisk'; Companions = @{ VolumeSize = 'Giga' } }
+    @{ Unit = 'BytesFile'; Companions = @{ VolumeSize = 'KiloByte' } }
+    @{ Unit = 'SpeedDisk'; Companions = @{ SpeedSize = 'KiloByte'; SpeedTime = 'Minute' } }
+    @{ Unit = 'SpeedNet'; Companions = @{ SpeedSize = 'MegaBit'; SpeedTime = 'Hour' } }
+    @{ Unit = 'Custom'; Companions = @{ CustomUnit = 'req/s' } }
+    @{ Unit = 'Temperature'; Companions = @{} }
+    @{ Unit = 'Percent'; Companions = @{} }
+    @{ Unit = 'TimeResponse'; Companions = @{} }
+    @{ Unit = 'TimeSeconds'; Companions = @{} }
+    @{ Unit = 'TimeHours'; Companions = @{} }
+    @{ Unit = 'Count'; Companions = @{} }
+    @{ Unit = 'CPU'; Companions = @{} }
+  ) {
+    $splat = @{ Channel = 'Probe'; Value = 42; Unit = $Unit } + $Companions
+    New-PrtgChannel @splat | Add-PrtgChannel
+
+    # Indexed, not member-enumerated: prtg.result is an array, and .PSObject on the array would
+    # report the array's own members rather than the channel's.
+    $emitted = @((Write-PrtgOutput | ConvertFrom-Json).prtg.result)[0]
+    $emitted.Channel | Should -Be 'Probe'
+    $emitted.Value   | Should -Be 42
+    $emitted.Unit    | Should -Be $Unit
+
+    foreach ($name in $Companions.Keys) {
+      $emitted.$name | Should -Be $Companions[$name] -Because "unit $Unit must carry $name into the output"
+    }
+
+    # A field that was never set must be ABSENT, not present and null: PRTG distinguishes an
+    # element that is missing from one set to a default.
+    $expected = @('Channel', 'Value', 'Unit', 'ShowChart', 'ShowTable') + @($Companions.Keys)
+    (@($emitted.PSObject.Properties.Name) | Sort-Object) -join ',' |
+      Should -Be ((@($expected) | Sort-Object) -join ',')
+  }
+}
+
 Describe 'New-PrtgChannel numeric value types' {
   It 'accepts <name> and keeps the value intact' -TestCases @(
     @{ Name = 'byte';    Value = [byte]5 }

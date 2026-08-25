@@ -162,6 +162,64 @@ Describe 'Clear-PrtgSensorState' {
   }
 }
 
+Describe 'Clear-PrtgSensorState -ClearLock -Force' {
+  # The two outcomes of this path are not symmetric, and one test cannot cover both: a successful
+  # removal is silent, and the only warning fires when the removal FAILS, which leaves the sidecar
+  # in place.
+  #
+  # The failure test calls the cmdlet directly, with no sensor block and no ambient preference set:
+  # Remove-Item reports a failed delete as a non-terminating error, so without the cmdlet's own
+  # -ErrorAction Stop the warning depends on Invoke-PrtgSensor's global 'Stop' preference.
+  BeforeEach { $dir = Join-Path $TestDrive "clearforce-$(Get-Random)" }
+
+  It 'removes the sidecar and says nothing when nothing holds the lock' {
+    Save-PrtgSensorState -Key 'freelock' -Value 1 -Path $dir
+    $lock = Join-Path $dir 'freelock.clixml.lock'
+    Test-Path $lock | Should -BeTrue
+
+    Clear-PrtgSensorState -Key 'freelock' -Path $dir -ClearLock -Force `
+      -WarningVariable warnings -WarningAction SilentlyContinue
+
+    Test-Path $lock | Should -BeFalse
+    Test-Path (Join-Path $dir 'freelock.clixml') | Should -BeFalse
+    # Silence on success is the current behaviour; warning here would be a behaviour change.
+    $warnings | Should -BeNullOrEmpty
+  }
+
+  It 'warns and leaves the sidecar when the removal fails' -Tag 'Windows' -Skip:(-not $onWindows) {
+    # Windows only. The suite's lock helper opens with exclusive sharing, which blocks a second
+    # OPEN everywhere but blocks a DELETE only on Windows; on a POSIX host the deletion succeeds,
+    # the sidecar goes, and there is no failure to observe.
+    Save-PrtgSensorState -Key 'heldlock' -Value 1 -Path $dir
+    $lock = Join-Path $dir 'heldlock.clixml.lock'
+    $handle = Get-TestLockHandle $lock
+    try {
+      # Streams are captured by redirection rather than with -ErrorVariable: an -ErrorAction Stop
+      # error record is collected there even after the cmdlet catches it, so -ErrorVariable cannot
+      # tell a reported failure from a handled one. What reaches the streams is what an operator
+      # sees.
+      $records = & { Clear-PrtgSensorState -Key 'heldlock' -Path $dir -ClearLock -Force } 3>&1 2>&1
+      $emitted = @($records | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
+      $failures = @($records | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
+
+      # The operator's only signal that the lock file is still there.
+      $emitted.Count | Should -Be 1 -Because 'a failed lock removal must reach the warning stream on every call path'
+      "$emitted" | Should -Match 'could not remove lock file'
+      "$emitted" | Should -Match 'probably held by a live run'
+      "$emitted" | Should -Match 'heldlock\.clixml\.lock'
+      Test-Path $lock | Should -BeTrue
+
+      # Reported once, as that warning, and not also as a raw Remove-Item error.
+      $failures | Should -BeNullOrEmpty
+
+      # Best-effort: the rest of the work still happened.
+      Test-Path (Join-Path $dir 'heldlock.clixml') | Should -BeFalse
+    } finally {
+      $handle.Dispose()
+    }
+  }
+}
+
 Describe 'Sensor state locking' {
   BeforeEach {
     $dir = Join-Path $TestDrive "lock-$(Get-Random)"

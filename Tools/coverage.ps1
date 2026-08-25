@@ -21,8 +21,11 @@ $psm1 = (Get-ChildItem -Path (Join-Path $repo 'Dist') -Recurse -Filter 'PrtgSens
   Sort-Object LastWriteTime -Descending | Select-Object -First 1).FullName
 if (-not $psm1) { throw "Built module not found under Dist/. Build first." }
 
-Remove-Module Pester -Force -ErrorAction SilentlyContinue
-Import-Module Pester -MinimumVersion 5.0.0 -Force
+# Load exactly the pinned Pester and state which version resolved. Pester versions change how
+# many commands a coverage run analyzes, so a coverage number is meaningless without the version
+# that produced it.
+. (Join-Path $PSScriptRoot 'pester_pin.ps1')
+Import-PinnedPester
 
 $c = New-PesterConfiguration
 $c.Run.Path = Join-Path $repo 'Tests'
@@ -37,6 +40,7 @@ $pct = if ($cc.CommandsAnalyzedCount) { $cc.CommandsExecutedCount / $cc.Commands
 
 Write-Host ("Tests: {0} passed, {1} failed" -f $r.PassedCount, $r.FailedCount)
 Write-Host ("Coverage: {0}/{1} = {2:N1}%" -f $cc.CommandsExecutedCount, $cc.CommandsAnalyzedCount, $pct)
+Write-Host "A covered line is not a tested input: this counts commands executed, not cases tried."
 if ($cc.CommandsMissed.Count) {
   Write-Host "--- Missed ---"
   $cc.CommandsMissed | ForEach-Object { Write-Host ("  {0}: {1}" -f $_.Line, $_.Command) }
