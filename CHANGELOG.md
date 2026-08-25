@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+#### Internal
+
+Nothing in this subsection is observable from a sensor script. No cmdlet, parameter, default,
+output or message text changed. This release's diff is large because source files moved and one
+function was split into thirteen, not because behaviour did; scripts written for 1.0.0 and
+1.1.0 keep running unchanged, with nothing to migrate.
+
+- **The private source is grouped by what each file serves.** It was a flat folder of
+  thirty-two files whose only grouping was alphabetical order, so finding the code behind the
+  state cmdlets meant reading file names one at a time. There are now six folders, named State,
+  Storage, Secrets, Channel, Output and Doctor, and a handful of files that belong to no
+  cluster and are left where they are. The file holding the output document is now named after
+  the output document; it was named after sensor state, which is a different concept in this
+  module's vocabulary and lives in the state files.
+
+- **Every rule the Doctor applies to a sensor script is now its own function, in its own file,
+  with its own tests.** All thirteen script checks lived inside a single 281-line function, so
+  reproducing one finding meant running the whole Doctor, and improving one message meant
+  editing a string inside that function with no test pinning the wording. Each check is now a
+  private function named after its check code, and a new test file pins the check code, the
+  severity and the full message text of every outcome each of them can emit. The messages
+  themselves are unchanged, character for character; the runner is now a plain list of calls,
+  with a test that fails if a check is written but never registered.
+
+- **Six functions that were hiding inside files named after other functions now have their own
+  files.** The resolver that decides where each on-disk store lives was defined inside a file
+  named for a different function, and five more were hidden the same way across three more
+  files, so neither a file listing nor a search by name revealed that they existed.
+
 ### Fixed
 
 - **A null output document now fails with a message that names the cause and the cmdlet.**
