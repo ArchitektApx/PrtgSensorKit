@@ -132,7 +132,9 @@ function Clear-PrtgSensorState {
 
   if ($ClearLock -and $Force -and (Test-Path -LiteralPath $lockFile)) {
     try {
-      Remove-Item -LiteralPath $lockFile -Force
+      # -ErrorAction Stop, or a failed delete stays non-terminating, this catch never runs, and
+      # whether the operator gets the warning below depends on the caller's ambient preference.
+      Remove-Item -LiteralPath $lockFile -Force -ErrorAction Stop
     } catch {
       Write-Warning "Clear-PrtgSensorState: could not remove lock file '$lockFile' (probably held by a live run). ($($_.Exception.Message))"
     }

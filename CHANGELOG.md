@@ -5,6 +5,22 @@ All notable changes to PrtgSensorKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **`Clear-PrtgSensorState -ClearLock -Force` now always warns when it cannot remove the lock
+  sidecar, instead of only inside an `Invoke-PrtgSensor` block.** The removal is best-effort, and
+  the warning naming the lock file is the operator's only signal that the file is still there and
+  probably held by a live run. It reached that warning only when the ambient
+  `$ErrorActionPreference` was `Stop`, which `Invoke-PrtgSensor` sets around a sensor block and
+  nothing else does: `Remove-Item` reports a failed delete as a non-terminating error, so on every
+  other call path the warning was skipped and a raw `RemoveFileSystemItemIOError` naming
+  `Remove-Item` surfaced in its place. Setting `$ErrorActionPreference` in the calling script did
+  not help either, because the cmdlet runs in the module's own session state. The removal now asks
+  for a terminating error explicitly, so the same call reports the same way from a sensor block, a
+  console, or a maintenance script.
+
 ## [1.4.1] - 2026-08-24
 
 ### Changed
