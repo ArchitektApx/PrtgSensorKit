@@ -27,8 +27,8 @@ function Test-PrtgDoctorScript {
   .DESCRIPTION
     Pure static analysis: works everywhere, never executes the target script. Each check
     emits exactly one finding (Pass or its issue severity); position-sensitive checks may
-    emit one finding per offending call site instead. The checks are assembled as a
-    registry of script blocks sharing one context, so future checks are additive.
+    emit one finding per offending call site instead. Every check reads the whole-script
+    walks from the parse context it is handed, so future checks are additive.
   #>
   [CmdletBinding()]
   param(
@@ -76,92 +76,17 @@ function Test-PrtgDoctorScript {
     $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0011' -Severity 'Pass' -Message 'Script encoding is safe for Windows PowerShell 5.1 (all-ASCII or BOM present).'))
   }
 
-  if ($null -eq $Parsed.Ast) { return $findings.ToArray() }
-
   # --- Shared context for all remaining checks ------------------------------------------
   $ast = $Parsed.Ast
   $commandAsts = @($Parsed.CommandAsts)
 
-  $getCallsByName = {
-    param([string[]]$Names)
-    @($commandAsts | Where-Object { $Names -contains $_.GetCommandName() })
-  }
+  $invokeCalls = Get-PrtgDoctorCall -Context $Parsed -Name 'Invoke-PrtgSensor'
+  $restartCalls = Get-PrtgDoctorCall -Context $Parsed -Name @('Restart-As64BitPowershell', 'Restart-InPwsh')
+  $importCalls = Get-PrtgDoctorCall -Context $Parsed -Name 'Import-Module'
+  $webCalls = Get-PrtgDoctorCall -Context $Parsed -Name @('Invoke-RestMethod', 'Invoke-WebRequest')
 
-  # Every assignment in the script; used to statically resolve splatted hashtables and
-  # variable-based values in the checks below.
-  $assignments = @($ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true))
-  $getAssignmentsTo = {
-    param([string]$variableName)
-    @($assignments | Where-Object {
-      $_.Left -is [System.Management.Automation.Language.VariableExpressionAst] -and
-      $_.Left.VariablePath.UserPath -eq $variableName
-    })
-  }
-
-  # A switch counts as ENABLED ('on') only when present without an argument (-X) or with
-  # an argument other than a literal $false (-X:$true, -X:$flag). '-X:$false' is 'off'.
-  # Splatted literal hashtables are resolved too; a splat the Doctor cannot resolve
-  # statically yields 'unknown' so checks never report a false Pass.
-  $getSwitchState = {
-    param($call, [string]$name)
-    $parameter = @($call.CommandElements | Where-Object {
-      $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -eq $name
-    }) | Select-Object -First 1
-    if ($parameter) {
-      if ($null -eq $parameter.Argument -or $parameter.Argument.Extent.Text -ne '$false') { return 'on' }
-      return 'off'
-    }
-    $state = 'off'
-    foreach ($splat in @($call.CommandElements | Where-Object {
-      $_ -is [System.Management.Automation.Language.VariableExpressionAst] -and $_.Splatted
-    })) {
-      $resolved = $false
-      foreach ($assignment in @(& $getAssignmentsTo $splat.VariablePath.UserPath)) {
-        $hashtable = $assignment.Right.Find({ $args[0] -is [System.Management.Automation.Language.HashtableAst] }, $true)
-        if ($null -eq $hashtable) { continue }
-        $resolved = $true
-        foreach ($pair in $hashtable.KeyValuePairs) {
-          $keyName = if ($pair.Item1 -is [System.Management.Automation.Language.StringConstantExpressionAst]) { $pair.Item1.Value }
-                     else { $pair.Item1.Extent.Text }
-          if ($keyName -eq $name -and $pair.Item2.Extent.Text -ne '$false') { return 'on' }
-        }
-      }
-      if (-not $resolved) { $state = 'unknown' }
-    }
-    $state
-  }
-
-  $invokeCalls = & $getCallsByName @('Invoke-PrtgSensor')
-  $restartCalls = & $getCallsByName @('Restart-As64BitPowershell', 'Restart-InPwsh')
-  $importCalls = & $getCallsByName @('Import-Module')
-  $webCalls = & $getCallsByName @('Invoke-RestMethod', 'Invoke-WebRequest')
-
-  # Script block arguments handed to Invoke-PrtgSensor (the sensor blocks).
-  $sensorBlockExtents = @(foreach ($call in $invokeCalls) {
-    foreach ($element in $call.CommandElements) {
-      if ($element -is [System.Management.Automation.Language.ScriptBlockExpressionAst]) { $element.Extent }
-    }
-  })
-
-  $isInsideSensorBlock = {
-    param($node)
-    foreach ($extent in $sensorBlockExtents) {
-      if ($node.Extent.StartOffset -gt $extent.StartOffset -and $node.Extent.EndOffset -le $extent.EndOffset) { return $true }
-    }
-    $false
-  }
-
-  # Import-Module calls that import PrtgSensorKit itself (by name or by manifest path).
-  # Literal arguments (scalar or array) are resolved by the shared helper so this check
-  # and the environment's import scan can never disagree on what counts as an import.
-  $isKitImport = {
-    param($call)
-    [bool]@(Get-PrtgDoctorLiteralArgument -Call $call | Where-Object {
-      $_ -match '(^|[\\/])PrtgSensorKit(\.psd1|\.psm1)?$'
-    })
-  }
-  $kitImports = @($importCalls | Where-Object { & $isKitImport $_ })
-  $otherImports = @($importCalls | Where-Object { -not (& $isKitImport $_) })
+  $kitImports = @($importCalls | Where-Object { Test-PrtgDoctorKitImport -Call $_ })
+  $otherImports = @($importCalls | Where-Object { -not (Test-PrtgDoctorKitImport -Call $_) })
 
   # --- PSK0002: Import-Module PrtgSensorKit before first kit command --------------------
   $kitCommandPattern = '^(?:\w+-Prtg\w+|Restart-As64BitPowershell|Restart-InPwsh)$'
@@ -189,7 +114,7 @@ function Test-PrtgDoctorScript {
   }
 
   # --- PSK0003: Restart-* must not run inside the sensor block --------------------------
-  $restartsInside = @($restartCalls | Where-Object { & $isInsideSensorBlock $_ })
+  $restartsInside = @($restartCalls | Where-Object { Test-PrtgDoctorInSensorBlock -Context $Parsed -Node $_ })
   if ($restartsInside.Count -gt 0) {
     foreach ($call in $restartsInside) {
       $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0003' -Severity 'Error' `
@@ -202,7 +127,7 @@ function Test-PrtgDoctorScript {
   }
 
   # --- PSK0004: Restart-* before Invoke-PrtgSensor and before other imports -------------
-  $restartsOutside = @($restartCalls | Where-Object { -not (& $isInsideSensorBlock $_) })
+  $restartsOutside = @($restartCalls | Where-Object { -not (Test-PrtgDoctorInSensorBlock -Context $Parsed -Node $_) })
   if ($restartCalls.Count -eq 0) {
     $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0004' -Severity 'Pass' -Message 'No Restart-* helpers used.'))
   } else {
@@ -230,8 +155,8 @@ function Test-PrtgDoctorScript {
   }
 
   # --- PSK0005: no manual output commands inside the sensor block -----------------------
-  $manualOutputCalls = & $getCallsByName @('Write-PrtgOutput', 'Write-PrtgError', 'Clear-PrtgOutput')
-  $manualInside = @($manualOutputCalls | Where-Object { & $isInsideSensorBlock $_ })
+  $manualOutputCalls = Get-PrtgDoctorCall -Context $Parsed -Name @('Write-PrtgOutput', 'Write-PrtgError', 'Clear-PrtgOutput')
+  $manualInside = @($manualOutputCalls | Where-Object { Test-PrtgDoctorInSensorBlock -Context $Parsed -Node $_ })
   if ($manualInside.Count -gt 0) {
     foreach ($call in $manualInside) {
       $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0005' -Severity 'Error' `
@@ -298,21 +223,21 @@ function Test-PrtgDoctorScript {
   if ($webCalls.Count -eq 0) {
     $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0009' -Severity 'Pass' -Message 'No web cmdlets used; TLS setup not needed.'))
   } else {
-    $forceTlsStates = @($invokeCalls | ForEach-Object { & $getSwitchState $_ 'ForceModernTls' })
+    $forceTlsStates = @($invokeCalls | ForEach-Object { Get-PrtgDoctorSwitchState -Context $Parsed -Call $_ -Name 'ForceModernTls' })
     # Manual TLS setup = an assignment whose TARGET is the ServicePointManager
     # SecurityProtocol member (not any variable containing that substring) and whose
     # value mentions a modern protocol, either literally or via a variable whose own
     # literal assignment mentions one. '$SecurityProtocolBackup = ...' or an Ssl3-only
     # assignment must not count; a value the Doctor cannot resolve is 'unknown', never
     # a silent Pass or a false 'not set up'.
-    $tlsAssignments = @($assignments | Where-Object {
+    $tlsAssignments = @($Parsed.Assignments | Where-Object {
       $_.Left.Extent.Text -match '(?i)ServicePointManager\]\s*::\s*SecurityProtocol\s*$'
     })
     $tlsVerdicts = @(foreach ($assignment in $tlsAssignments) {
       if ($assignment.Right.Extent.Text -match '(?i)Tls1[23]') { 'modern'; continue }
       $variable = $assignment.Right.Find({ $args[0] -is [System.Management.Automation.Language.VariableExpressionAst] }, $true)
       if ($null -eq $variable) { 'none'; continue }
-      if (@(& $getAssignmentsTo $variable.VariablePath.UserPath |
+      if (@(Get-PrtgDoctorAssignment -Context $Parsed -VariableName $variable.VariablePath.UserPath |
           Where-Object { $_.Right.Extent.Text -match '(?i)Tls1[23]' }).Count -gt 0) { 'modern' } else { 'unknown' }
     })
     if ($forceTlsStates -contains 'on' -or $tlsVerdicts -contains 'modern') {
@@ -331,8 +256,8 @@ function Test-PrtgDoctorScript {
   }
 
   # --- PSK0010: -DryRun left in the script -----------------------------------------------
-  $dryRunCalls = @($invokeCalls | Where-Object { (& $getSwitchState $_ 'DryRun') -eq 'on' })
-  $unresolvedDryRunCalls = @($invokeCalls | Where-Object { (& $getSwitchState $_ 'DryRun') -eq 'unknown' })
+  $dryRunCalls = @($invokeCalls | Where-Object { (Get-PrtgDoctorSwitchState -Context $Parsed -Call $_ -Name 'DryRun') -eq 'on' })
+  $unresolvedDryRunCalls = @($invokeCalls | Where-Object { (Get-PrtgDoctorSwitchState -Context $Parsed -Call $_ -Name 'DryRun') -eq 'unknown' })
   if ($dryRunCalls.Count -gt 0) {
     $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0010' -Severity 'Warning' `
       -Message 'Invoke-PrtgSensor is called with -DryRun. Deployed to PRTG, this emits an object dump instead of the PRTG JSON.' `
@@ -348,7 +273,7 @@ function Test-PrtgDoctorScript {
   }
 
   # --- PSK0012: channel limits are a creation-time snapshot ------------------------------
-  $channelCalls = & $getCallsByName @('New-PrtgChannel')
+  $channelCalls = Get-PrtgDoctorCall -Context $Parsed -Name 'New-PrtgChannel'
   $limitCalls = @($channelCalls | Where-Object {
     @($_.CommandElements | Where-Object {
       $_ -is [System.Management.Automation.Language.CommandParameterAst] -and $_.ParameterName -like 'Limit*'
@@ -364,7 +289,7 @@ function Test-PrtgDoctorScript {
   }
 
   # --- PSK0013: DPAPI secrets are bound to the sensor account -----------------------------
-  $secretCalls = & $getCallsByName @('Get-PrtgSecret')
+  $secretCalls = Get-PrtgDoctorCall -Context $Parsed -Name 'Get-PrtgSecret'
   if ($secretCalls.Count -gt 0) {
     $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0013' -Severity 'Info' `
       -Message 'Get-PrtgSecret is used. DPAPI secrets only decrypt under the Windows account that saved them, and PRTG runs the sensor as the probe service account (usually Local System), not your console user.' `

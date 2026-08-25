@@ -14,22 +14,35 @@ function Get-PrtgDoctorAst {
 
   $tokens = $null
   $parseErrors = $null
+  # ParseFile never returns null: syntax errors, a missing path, a directory and an empty file
+  # all yield a ScriptBlockAst and report through $parseErrors, so no consumer guards the tree.
   $ast = [System.Management.Automation.Language.Parser]::ParseFile($ScriptPath, [ref]$tokens, [ref]$parseErrors)
 
-  # Walked once here; every consumer (script checks, environment context) reuses this
-  # list so there is exactly one definition of 'the commands in the script'.
-  $commandAsts = @()
-  if ($null -ne $ast) {
-    $commandAsts = @($ast.FindAll({ $args[0] -is [System.Management.Automation.Language.CommandAst] }, $true))
+  # The whole-script walks every check reads from, done once so no check walks the tree to a
+  # different answer.
+  $commandAsts = @($ast.FindAll({ $args[0] -is [System.Management.Automation.Language.CommandAst] }, $true))
+  $assignments = @($ast.FindAll({ $args[0] -is [System.Management.Automation.Language.AssignmentStatementAst] }, $true))
+
+  $context = [PSCustomObject]@{
+    ScriptPath         = $ScriptPath
+    Ast                = $ast
+    Tokens             = $tokens
+    ParseErrors        = @($parseErrors)
+    CommandAsts        = $commandAsts
+    Assignments        = $assignments
+    SensorBlockExtents = @()
   }
 
-  [PSCustomObject]@{
-    ScriptPath  = $ScriptPath
-    Ast         = $ast
-    Tokens      = $tokens
-    ParseErrors = @($parseErrors)
-    CommandAsts = $commandAsts
-  }
+  # Derived from CommandAsts through the same helper the checks use, so the object must exist first.
+  $context.SensorBlockExtents = @(
+    foreach ($call in @(Get-PrtgDoctorCall -Context $context -Name 'Invoke-PrtgSensor')) {
+      foreach ($element in $call.CommandElements) {
+        if ($element -is [System.Management.Automation.Language.ScriptBlockExpressionAst]) { $element.Extent }
+      }
+    }
+  )
+
+  $context
 }
 
 function Get-PrtgDoctorImportedModuleName {
@@ -44,15 +57,12 @@ function Get-PrtgDoctorImportedModuleName {
   )
 
   $names = [System.Collections.Generic.List[string]]::new()
-  if ($null -eq $Parsed.Ast) { return @() }
 
   foreach ($requirement in @($Parsed.Ast.ScriptRequirements.RequiredModules)) {
     if ($requirement.Name) { $names.Add($requirement.Name) }
   }
 
-  $importCalls = @($Parsed.CommandAsts | Where-Object { $_.GetCommandName() -eq 'Import-Module' })
-
-  foreach ($call in $importCalls) {
+  foreach ($call in @(Get-PrtgDoctorCall -Context $Parsed -Name 'Import-Module')) {
     foreach ($value in @(Get-PrtgDoctorLiteralArgument -Call $call)) { $names.Add($value) }
   }
 

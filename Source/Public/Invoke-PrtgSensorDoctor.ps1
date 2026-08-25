@@ -81,10 +81,9 @@ function Invoke-PrtgSensorDoctor {
   } elseif (-not (Test-PrtgWindows)) {
     $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0100' -Severity 'Info' `
       -Message 'Environment checks skipped: not running on Windows. Run the Doctor on the PRTG probe for the full picture.'))
-  } elseif ($null -ne $parsed.Ast) {
-    $commandAsts = @($parsed.CommandAsts)
-    $uses64 = @($commandAsts | Where-Object { $_.GetCommandName() -eq 'Restart-As64BitPowershell' }).Count -gt 0
-    $usesPwsh = @($commandAsts | Where-Object { $_.GetCommandName() -eq 'Restart-InPwsh' }).Count -gt 0
+  } else {
+    $uses64 = @(Get-PrtgDoctorCall -Context $parsed -Name 'Restart-As64BitPowershell').Count -gt 0
+    $usesPwsh = @(Get-PrtgDoctorCall -Context $parsed -Name 'Restart-InPwsh').Count -gt 0
     $staticModules = Get-PrtgDoctorImportedModuleName -Parsed $parsed
     $findings.AddRange(@(Test-PrtgDoctorEnvironment -UsesRestart64Bit $uses64 -UsesRestartInPwsh $usesPwsh -StaticModuleNames $staticModules))
   }
