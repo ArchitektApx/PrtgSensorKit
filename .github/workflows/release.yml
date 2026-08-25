@@ -50,7 +50,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ~/.local/share/powershell/Modules
-          key: psmodules-ubuntu-latest-pwsh-${{ hashFiles('Tools/install_dev_requirements.ps1') }}
+          key: psmodules-ubuntu-latest-pwsh-${{ hashFiles('Tools/install_dev_requirements.ps1', 'Tools/pester_pin.ps1') }}
 
       - name: Install dev requirements
         shell: pwsh

@@ -15,7 +15,7 @@ Everything here is meant to be run from the **repo root**. Most tools have a sho
 
 | Tool | Task | What it does |
 |---|---|---|
-| `install_dev_requirements.ps1` | `install_dev_requirements` | Installs ModuleBuilder, Configuration, Pester 5+, and PSScriptAnalyzer for the current user. |
+| `install_dev_requirements.ps1` | `install_dev_requirements` | Installs ModuleBuilder, Configuration, Pester (pinned, see `Tools/pester_pin.ps1`), and PSScriptAnalyzer for the current user. |
 | `build.ps1` | `build` | Clears `Dist/` and builds the module with ModuleBuilder. |
 | `tests.ps1` | `test` | Runs the Pester suite against the built module. Throws on any failure. |
 | `lint.ps1` | `lint` | PSScriptAnalyzer over `Source/`: style/correctness, then WinPS 5.1 + pwsh 7 compatibility. Any finding fails. |
@@ -29,6 +29,11 @@ Everything except the deploy script imports the **built** module from `Dist/`, t
 a user installs, so `build` has to run first.
 
 ## Notes
+
+**Pester is pinned to 6.1.0.** The pin is owned by `Tools/pester_pin.ps1` and echoed here, so
+changing it means editing both. Pester versions change how many commands a coverage run analyzes,
+so numbers produced by two different versions cannot be compared. A host without the pinned
+version fails the run with the command that installs it.
 
 **Coverage is per host.** The relaunch cmdlets read as uncovered everywhere because they are
 tested in a child process that the instrumentation cannot follow. Compare hosts before

@@ -44,7 +44,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: ${{ matrix.modulePath }}
-          key: psmodules-${{ matrix.os }}-${{ matrix.host }}-${{ hashFiles('Tools/install_dev_requirements.ps1') }}
+          key: psmodules-${{ matrix.os }}-${{ matrix.host }}-${{ hashFiles('Tools/install_dev_requirements.ps1', 'Tools/pester_pin.ps1') }}
 
       # matrix.host selects the runtime: 'powershell' = Windows PowerShell 5.1, 'pwsh' = PowerShell 7+.
       # The shell key cannot use the matrix context, so run under pwsh and invoke the target host.
