@@ -5,64 +5,52 @@ All notable changes to PrtgSensorKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.4.2] - 2026-08-25
 
 ### Changed
 
 #### Internal
 
-Nothing in this subsection is observable from a sensor script. No cmdlet, parameter, default,
-output or message text changed. This release's diff is large because source files moved and one
-function was split into thirteen, not because behaviour did; scripts written for 1.0.0 and
-1.1.0 keep running unchanged, with nothing to migrate.
+Nothing here is observable from a sensor script: no cmdlet, parameter, default, output or
+message text changed. The diff is large because files moved and one function became thirteen.
+Scripts written for 1.0.0 and 1.1.0 keep running unchanged; there is nothing to migrate.
 
-- **The private source is grouped by what each file serves.** It was a flat folder of
-  thirty-two files whose only grouping was alphabetical order, so finding the code behind the
-  state cmdlets meant reading file names one at a time. There are now six folders, named State,
-  Storage, Secrets, Channel, Output and Doctor, and a handful of files that belong to no
-  cluster and are left where they are. The file holding the output document is now named after
-  the output document; it was named after sensor state, which is a different concept in this
-  module's vocabulary and lives in the state files.
+- **The private source is grouped by what each file serves**: State, Storage, Secrets, Channel,
+  Output and Doctor, instead of one flat folder. The file holding the output document is now
+  named after it rather than after sensor state, which is a different concept in this module.
 
-- **Every rule the Doctor applies to a sensor script is now its own function, in its own file,
-  with its own tests.** All thirteen script checks lived inside a single 281-line function, so
-  reproducing one finding meant running the whole Doctor, and improving one message meant
-  editing a string inside that function with no test pinning the wording. Each check is now a
-  private function named after its check code, and a new test file pins the check code, the
-  severity and the full message text of every outcome each of them can emit. The messages
-  themselves are unchanged, character for character; the runner is now a plain list of calls,
-  with a test that fails if a check is written but never registered.
+- **Every Doctor script check is its own function, file and test.** The thirteen checks lived
+  in one 281-line function. Each is now a private function named after its check code, the
+  runner is a plain list of calls, and a new test file pins the check code, severity and full
+  message text of every outcome. The messages are unchanged character for character, and a test
+  fails if a check is written but never registered.
 
-- **Six functions that were hiding inside files named after other functions now have their own
-  files.** The resolver that decides where each on-disk store lives was defined inside a file
-  named for a different function, and five more were hidden the same way across three more
-  files, so neither a file listing nor a search by name revealed that they existed.
+- **Six functions that were hiding inside files named after other functions have their own
+  files**, among them the resolver that decides where each on-disk store lives.
+
+- **The Doctor's shared analysis is a parse context read through named private functions.**
+  Five helpers that were script-block locals inside one function are now ordinary functions, so
+  a single check can be reached and stepped through on its own.
 
 ### Fixed
 
 - **A null output document now fails with a message that names the cause and the cmdlet.**
-  `Set-PrtgOutput $null` succeeds, as it always has, and the failure then surfaced later in an
-  unrelated cmdlet: `Add-PrtgChannel` reported *"You cannot call a method on a null-valued
-  expression"* and `Set-PrtgMessage` reported *"The property 'text' cannot be found on this
-  object"*. Neither named the null output document, and neither named the cmdlet that produced
-  it, so the trail back to the `Set-PrtgOutput` call was the operator's to reconstruct. Both now
-  say which cmdlet failed, that the output document is null, and how to recover. They still fail
-  at exactly the point they failed before: `Set-PrtgOutput` accepts `$null` unchanged, because
-  rejecting it earlier would turn a sensor that is green today red on upgrade. `Get-PrtgMessage`
-  still returns `$null` silently, and `Write-PrtgOutput` still emits no error and fabricates no
-  document, for the same reason.
+  After `Set-PrtgOutput $null`, `Add-PrtgChannel` failed with *"You cannot call a method on a
+  null-valued expression"* and `Set-PrtgMessage` with *"The property 'text' cannot be found on
+  this object"*, neither naming the document or the cmdlet. Both now say which cmdlet failed,
+  that the output document is null, and how to recover. They fail at exactly the point they did
+  before: `Set-PrtgOutput` still accepts `$null`, `Get-PrtgMessage` still returns `$null`
+  silently and `Write-PrtgOutput` still emits without error, because failing earlier could turn a
+  green sensor red on upgrade.
 
 - **`Clear-PrtgSensorState -ClearLock -Force` now always warns when it cannot remove the lock
-  sidecar, instead of only inside an `Invoke-PrtgSensor` block.** The removal is best-effort, and
-  the warning naming the lock file is the operator's only signal that the file is still there and
-  probably held by a live run. It reached that warning only when the ambient
-  `$ErrorActionPreference` was `Stop`, which `Invoke-PrtgSensor` sets around a sensor block and
-  nothing else does: `Remove-Item` reports a failed delete as a non-terminating error, so on every
-  other call path the warning was skipped and a raw `RemoveFileSystemItemIOError` naming
-  `Remove-Item` surfaced in its place. Setting `$ErrorActionPreference` in the calling script did
-  not help either, because the cmdlet runs in the module's own session state. The removal now asks
-  for a terminating error explicitly, so the same call reports the same way from a sensor block, a
-  console, or a maintenance script.
+  sidecar, not only inside an `Invoke-PrtgSensor` block.** `Remove-Item` reports a failed delete
+  as a non-terminating error, so the warning fired only under the `Stop` preference that
+  `Invoke-PrtgSensor` sets; from a console or a maintenance script a raw
+  `RemoveFileSystemItemIOError` surfaced instead, and setting `$ErrorActionPreference` in the
+  calling script did not help because the cmdlet runs in the module's own session state. The
+  removal now requests a terminating error explicitly, so every call path reports the same
+  warning, which is the operator's only signal that the file is still held by a live run.
 
 ## [1.4.1] - 2026-08-24
 
@@ -479,7 +467,8 @@ shape changed. Sensors written against 1.0.0 behave identically after upgrading.
 - Full comment-based help on every command, 17 runnable examples, Pester suite run
   against the built module on Windows PowerShell 5.1 and PowerShell 7.
 
-[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.1...HEAD
+[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.2...HEAD
+[1.4.2]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.3.0...v1.4.0
 [1.3.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.2.1...v1.3.0
