@@ -27,5 +27,7 @@ function Set-PrtgMessage {
     [string]$Text
   )
 
+  Assert-PrtgOutputDocument -Caller $PSCmdlet -Action 'set a message on' -Document $script:OutputObject
+
   $script:OutputObject.prtg.text = Format-PrtgMessage $Text
 }

@@ -319,6 +319,8 @@ function Invoke-PrtgSensor {
     }
 
     if ($EnableLogging) {
+      # Deliberate single reach-through into the output document, for this log line only. No
+      # accessor: a private function with exactly one caller would be a thin wrapper.
       Write-PrtgLog "sensor ok: $($script:OutputObject.prtg.result.Count) channels, message '$(Get-PrtgMessage)', $($stopwatch.ElapsedMilliseconds) ms"
     }
 

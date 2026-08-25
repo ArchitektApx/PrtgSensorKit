@@ -9,6 +9,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A null output document now fails with a message that names the cause and the cmdlet.**
+  `Set-PrtgOutput $null` succeeds, as it always has, and the failure then surfaced later in an
+  unrelated cmdlet: `Add-PrtgChannel` reported *"You cannot call a method on a null-valued
+  expression"* and `Set-PrtgMessage` reported *"The property 'text' cannot be found on this
+  object"*. Neither named the null output document, and neither named the cmdlet that produced
+  it, so the trail back to the `Set-PrtgOutput` call was the operator's to reconstruct. Both now
+  say which cmdlet failed, that the output document is null, and how to recover. They still fail
+  at exactly the point they failed before: `Set-PrtgOutput` accepts `$null` unchanged, because
+  rejecting it earlier would turn a sensor that is green today red on upgrade. `Get-PrtgMessage`
+  still returns `$null` silently, and `Write-PrtgOutput` still emits no error and fabricates no
+  document, for the same reason.
+
 - **`Clear-PrtgSensorState -ClearLock -Force` now always warns when it cannot remove the lock
   sidecar, instead of only inside an `Invoke-PrtgSensor` block.** The removal is best-effort, and
   the warning naming the lock file is the operator's only signal that the file is still there and

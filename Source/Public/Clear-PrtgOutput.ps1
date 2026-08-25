@@ -16,10 +16,5 @@ function Clear-PrtgOutput {
   [CmdletBinding()]
   param()
 
-  $script:OutputObject = [PSCustomObject]@{
-    prtg = [PSCustomObject]@{
-      result = [System.Collections.ArrayList]@()
-      text   = ''
-    }
-  }
+  $script:OutputObject = New-PrtgOutputDocument
 }

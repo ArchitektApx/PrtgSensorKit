@@ -70,3 +70,92 @@ Describe 'State management' {
       Should -BeNullOrEmpty
   }
 }
+
+Describe 'A null output document' {
+  # Four consumers behave four different ways on a null document, and that is deliberate: the
+  # two that fail today name what went wrong, and the two that are silent today stay silent,
+  # because making a silent path throw could turn a sensor that is green today red on upgrade.
+  AfterEach { Clear-PrtgOutput }
+
+  It 'is accepted by Set-PrtgOutput without an error' {
+    # Validating here instead would move the failure earlier, which is the behaviour change
+    # the compatibility promise forbids.
+    { Set-PrtgOutput $null } | Should -Not -Throw
+  }
+
+  It 'makes Add-PrtgChannel name the cause and itself' {
+    Set-PrtgOutput $null
+    $channel = New-PrtgChannel -Channel 'A' -Value 1
+    { $channel | Add-PrtgChannel } | Should -Throw '*Add-PrtgChannel*output document is null*'
+    { $channel | Add-PrtgChannel } | Should -Throw '*Set-PrtgOutput*'
+  }
+
+  It 'makes Set-PrtgMessage name the cause and itself' {
+    Set-PrtgOutput $null
+    { Set-PrtgMessage 'x' } | Should -Throw '*Set-PrtgMessage*output document is null*'
+    { Set-PrtgMessage 'x' } | Should -Throw '*Clear-PrtgOutput*'
+  }
+
+  It 'fails no earlier than it did before' {
+    Set-PrtgOutput $null
+    # New-PrtgChannel never touches the document, so it must still succeed.
+    { New-PrtgChannel -Channel 'A' -Value 1 } | Should -Not -Throw
+
+    # The channel-limit and duplicate checks still run against a null document without
+    # throwing, so the named error is what surfaces rather than either of theirs.
+    $failure = { New-PrtgChannel -Channel 'A' -Value 1 | Add-PrtgChannel } | Should -Throw -PassThru
+    "$($failure.Exception.Message)" | Should -Not -Match 'maximum of 50 channels'
+    "$($failure.Exception.Message)" | Should -Not -Match 'already added'
+  }
+
+  It 'leaves Get-PrtgMessage returning null silently' {
+    Set-PrtgOutput $null
+    $result = Get-PrtgMessage
+    $result | Should -BeNullOrEmpty
+  }
+
+  It 'leaves Write-PrtgOutput emitting without failing' {
+    Set-PrtgOutput $null
+    $records = & { Write-PrtgOutput } 2>&1
+    @($records | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) |
+      Should -BeNullOrEmpty
+    # What it emits differs by host: pwsh 7 serializes the literal 'null', Windows PowerShell
+    # 5.1 emits nothing. Both are unchanged behaviour, so neither value is pinned here. What
+    # matters is that it does not fail and does not invent a document.
+    "$records" | Should -Not -Match 'prtg'
+  }
+
+  It 'recovers with Clear-PrtgOutput' {
+    Set-PrtgOutput $null
+    Clear-PrtgOutput
+    { New-PrtgChannel -Channel 'A' -Value 1 | Add-PrtgChannel } | Should -Not -Throw
+    (Write-PrtgOutput | ConvertFrom-Json).prtg.result.Count | Should -Be 1
+  }
+}
+
+Describe 'One factory owns the output document shape' {
+  It 'gives Clear-PrtgOutput and the import-time document the same shape' {
+    # Imported fresh so the document under test is the one the module built at import time, and
+    # read BEFORE Clear-PrtgOutput replaces it. Clearing first would compare one document with
+    # itself, and the drift this guards against is exactly between those two.
+    Import-BuiltPrtgModule
+    $atImport = Write-PrtgOutput | ConvertFrom-Json
+
+    Clear-PrtgOutput
+    $afterClear = Write-PrtgOutput | ConvertFrom-Json
+
+    foreach ($document in @($atImport, $afterClear)) {
+      @($document.PSObject.Properties.Name) | Should -Be @('prtg')
+      (@($document.prtg.PSObject.Properties.Name) | Sort-Object) -join ',' | Should -Be 'result,text'
+      $document.prtg.text | Should -BeExactly ''
+      @($document.prtg.result).Count | Should -Be 0
+    }
+  }
+
+  It 'returns a fresh document each time, not a shared one' {
+    Clear-PrtgOutput
+    New-PrtgChannel -Channel 'A' -Value 1 | Add-PrtgChannel
+    Clear-PrtgOutput
+    (Write-PrtgOutput | ConvertFrom-Json).prtg.result.Count | Should -Be 0
+  }
+}
