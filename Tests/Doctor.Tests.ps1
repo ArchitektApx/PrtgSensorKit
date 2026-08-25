@@ -507,6 +507,64 @@ Invoke-PrtgSensor @params { Set-PrtgMessage 'ok' }
   }
 }
 
+Describe 'Doctor argument resolution on shapes no other fixture produces' {
+
+  It 'PSK0010: reads -DryRun out of a splat whose other key is not a plain string literal' {
+    # The hashtable's first key is a variable, so the Doctor cannot read it as a name. That must
+    # not stop it reading the keys it CAN read: -DryRun is still found and still flagged.
+    $findings = Invoke-DoctorOn @'
+Import-Module PrtgSensorKit
+$key = 'RetryCount'
+$params = @{ $key = 2; DryRun = $true }
+Invoke-PrtgSensor @params { Set-PrtgMessage 'ok' }
+'@
+    $f = Get-Finding $findings 'PSK0010'
+    $f.Severity | Should -Be 'Warning'
+    $f.Message  | Should -Match '-DryRun'
+    $f.Line     | Should -Be 4
+  }
+
+  It 'PSK0009: refuses to pass when SecurityProtocol comes from a variable it cannot resolve' {
+    # $ProtocolFromCaller is never assigned in the script, so its value is unknowable statically.
+    # Reporting a Pass here would tell an operator that TLS is set up when it may not be.
+    $findings = Invoke-DoctorOn @'
+Import-Module PrtgSensorKit
+[Net.ServicePointManager]::SecurityProtocol = $ProtocolFromCaller
+Invoke-PrtgSensor { $x = Invoke-RestMethod -Uri 'https://example.com' }
+'@
+    $f = Get-Finding $findings 'PSK0009'
+    $f.Severity | Should -Not -Be 'Pass'
+    $f.Severity | Should -Be 'Info'
+    $f.Message  | Should -Match 'could not be verified statically'
+    $f.Line     | Should -Be 3
+  }
+
+  It 'PSK0009: passes when SecurityProtocol comes from a variable it CAN resolve to a modern value' {
+    $findings = Invoke-DoctorOn @'
+Import-Module PrtgSensorKit
+$proto = [Net.SecurityProtocolType]::Tls12
+[Net.ServicePointManager]::SecurityProtocol = $proto
+Invoke-PrtgSensor { $x = Invoke-RestMethod -Uri 'https://example.com' }
+'@
+    $f = Get-Finding $findings 'PSK0009'
+    $f.Severity | Should -Be 'Pass'
+    $f.Message  | Should -Match 'TLS is set up'
+  }
+
+  It 'PSK0002: does not read another parameter''s value as the imported module name' {
+    # -Prefix carries the string 'PrtgSensorKit'. Taking it for the module name would report the
+    # kit as imported when the script imports SqlServer and never imports the kit at all.
+    $findings = Invoke-DoctorOn @'
+Import-Module SqlServer -Prefix 'PrtgSensorKit'
+Invoke-PrtgSensor { Set-PrtgMessage 'ok' }
+'@
+    $f = Get-Finding $findings 'PSK0002'
+    $f.Severity | Should -Be 'Warning'
+    $f.Message  | Should -Match "No 'Import-Module PrtgSensorKit' found"
+    $f.Line     | Should -Be 2
+  }
+}
+
 Describe 'Doctor environment check dispatch' -Tag 'Windows' {
   It 'runs the real environment checks on Windows and reports PSK0101' -Skip:(-not $onWindows) {
     # Machine state (installed modules, pwsh presence) decides the severities, so this
