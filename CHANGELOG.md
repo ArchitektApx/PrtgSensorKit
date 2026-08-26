@@ -23,6 +23,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   used to print zero passed, zero failed and exit clean. The guard and the suite path
   resolution live in `Tools/test_suite_path.ps1`, shared by both runners.
 
+- **The channel builder's four companion parameters come from one factory.** Three
+  near-identical arms of the dynamic parameter block are now single calls to a private
+  `New-PrtgDynamicParameter`. The parameter attribute is still built fresh per call (the
+  v1.4.2 fix), and every unit family binds exactly as before.
+
 ## [1.4.2] - 2026-08-25
 
 ### Changed

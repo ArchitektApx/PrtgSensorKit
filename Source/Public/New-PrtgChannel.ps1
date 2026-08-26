@@ -260,57 +260,25 @@ function New-PrtgChannel {
       'TeraBit'
     )
 
+    # The unit list and the companion parameter names stay literal: the generator interface
+    # that would let them be derived is absent on 32-bit Windows PowerShell 5.1.
     switch ( $Unit ) {
       { $_ -eq 'Custom' } {
-        $CustomUnitAttribute = [System.Management.Automation.ParameterAttribute]::New()
-        $CustomUnitAttribute.Mandatory = $True
-        $ValidateAttribute = [System.Management.Automation.ValidateNotNullOrEmptyAttribute]::New()
-        $AttributeCollection = [System.Collections.ObjectModel.Collection[System.Attribute]]::New()
-        $AttributeCollection.Add($CustomUnitAttribute)
-        $AttributeCollection.Add($ValidateAttribute)
-        $CustomUnitDynParam = [System.Management.Automation.RuntimeDefinedParameter]::New(
-          'CustomUnit', [string], $AttributeCollection
-        )
-        $ParamDictionary.Add('CustomUnit', $CustomUnitDynParam)
+        New-PrtgDynamicParameter -Name 'CustomUnit' -Dictionary $ParamDictionary -Mandatory `
+          -Validator ([System.Management.Automation.ValidateNotNullOrEmptyAttribute]::New())
       }
       { $_ -in @('BytesBandwidth', 'SpeedDisk', 'SpeedNet') } {
-        $SpeedSizeAttribute = [System.Management.Automation.ParameterAttribute]::New()
-        $SpeedSizeAttribute.Mandatory = $false
-        $AttributeCollection = [System.Collections.ObjectModel.Collection[System.Attribute]]::New()
-        $AttributeCollection.Add($SpeedSizeAttribute)
-        $AttributeCollection.Add($ValidateSizeAttribute)
-        $SpeedSizeDynParam = [System.Management.Automation.RuntimeDefinedParameter]::New(
-          'SpeedSize', [string], $AttributeCollection
-        )
-        $ParamDictionary.Add('SpeedSize', $SpeedSizeDynParam)
-
-        $SpeedTimeAttribute = [System.Management.Automation.ParameterAttribute]::New()
-        $SpeedTimeAttribute.Mandatory = $false
-        $ValidateTimeAttribute = [System.Management.Automation.ValidateSetAttribute]::New(
-          'Second',
-          'Minute',
-          'Hour',
-          'Day'
-        )
-        $AttributeCollection = [System.Collections.ObjectModel.Collection[System.Attribute]]::New()
-        $AttributeCollection.Add($SpeedTimeAttribute)
-        $AttributeCollection.Add($ValidateTimeAttribute)
-        $SpeedTimeDynParam = [System.Management.Automation.RuntimeDefinedParameter]::New(
-          'SpeedTime', [string], $AttributeCollection
-        )
-        $ParamDictionary.Add('SpeedTime', $SpeedTimeDynParam)
+        New-PrtgDynamicParameter -Name 'SpeedSize' -Dictionary $ParamDictionary -Validator $ValidateSizeAttribute
+        New-PrtgDynamicParameter -Name 'SpeedTime' -Dictionary $ParamDictionary `
+          -Validator ([System.Management.Automation.ValidateSetAttribute]::New(
+            'Second',
+            'Minute',
+            'Hour',
+            'Day'
+          ))
       }
       { $_ -in @('BytesDisk', 'BytesFile') } {
-        $VolumeSizeAttribute = [System.Management.Automation.ParameterAttribute]::New()
-        $VolumeSizeAttribute.Mandatory = $false
-        $AttributeCollection = [System.Collections.ObjectModel.Collection[System.Attribute]]::New()
-        $AttributeCollection.Add($VolumeSizeAttribute)
-        $AttributeCollection.Add($ValidateSizeAttribute)
-        $VolumeSizeDynParam = [System.Management.Automation.RuntimeDefinedParameter]::New(
-          'VolumeSize', [string], $AttributeCollection
-        )
-
-        $ParamDictionary.Add('VolumeSize', $VolumeSizeDynParam)
+        New-PrtgDynamicParameter -Name 'VolumeSize' -Dictionary $ParamDictionary -Validator $ValidateSizeAttribute
       }
     }
 
