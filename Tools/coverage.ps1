@@ -5,9 +5,6 @@
 #   ./tasks.ps1 coverage [-MinimumPercent 90]
 #   pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Tools/coverage.ps1
 #
-# Prefer that second form when comparing runs: the injected flags exercise
-# Get-PrtgRelaunchArgs' dedup branches, which a plain launch leaves uncovered.
-#
 # Coverage is per host, and the relaunch cmdlets always read as missed (they run in a child
 # process). Compare hosts before calling a line untested.
 

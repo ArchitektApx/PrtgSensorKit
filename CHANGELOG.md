@@ -16,6 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   could not see the decisions already made. The README now says work with coding agents
   follows Vibe Driven Development.
 
+- **The coverage runner's header no longer recommends a launch form for a false reason.** It
+  pointed at a function this repository never had; the sentence is gone.
+
 ## [1.4.2] - 2026-08-25
 
 ### Changed
