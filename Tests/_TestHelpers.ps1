@@ -24,6 +24,27 @@ function Test-OnWindowsHost {
   ($PSVersionTable.PSEdition -eq 'Desktop') -or [bool]$IsWindows
 }
 
+# A store folder under TestDrive, unique per call so two tests in one file never share one.
+# Created by default. -NoCreate marks the sites whose subject needs the folder absent: the
+# state resolver creates its own folder, the secret resolver deliberately does not.
+function New-TestStore {
+  [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+    Justification = 'Test fixture creating a folder under TestDrive, which Pester removes; -WhatIf/-Confirm do not apply.')]
+  [OutputType([string])]
+  param(
+    [Parameter(Mandatory = $true, Position = 0)]
+    [ValidateNotNullOrEmpty()]
+    [string]$Tag,
+
+    [switch]$NoCreate
+  )
+
+  # $TestDrive comes from the calling test scope; PowerShell resolves it up the call stack.
+  $path = Join-Path $TestDrive "$Tag-$(Get-Random)"
+  if (-not $NoCreate) { [void] (New-Item -ItemType Directory -Path $path -Force) }
+  $path
+}
+
 # Opens the exclusive lock handle the way the module does, to simulate a concurrent run.
 # Shared by the state and cache test files so both always test the same lock semantics.
 function Get-TestLockHandle([string]$LockFile) {

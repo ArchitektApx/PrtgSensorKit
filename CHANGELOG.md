@@ -45,6 +45,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   channel names and values are outside it; why the output and error documents share no shape;
   why the two identical response tails stay inline. No source changed.
 
+- **One `New-TestStore` fixture replaces about eighty hand-written store folders in the
+  tests.** Its `-NoCreate` switch marks the rule the old code hid: the state store creates its
+  own folder, the secret store deliberately does not. Pass and skip counts are unchanged.
+
 ## [1.4.2] - 2026-08-25
 
 ### Changed

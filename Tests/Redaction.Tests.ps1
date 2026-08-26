@@ -224,7 +224,7 @@ Describe 'Redaction seeding' {
 
   It 'auto-registers a Get-PrtgSecret -AsPlainText value' {
     InModuleScope PrtgSensorKit { $script:PrtgRedactions.Clear() }
-    $path = Join-Path $TestDrive "redact-secrets-$(Get-Random)"
+    $path = New-TestStore 'redact-secrets'
     $secret = ConvertTo-SecureString 'Rk-9f31d7a2c840' -AsPlainText -Force
     Save-PrtgSecret -Name 'Token' -Secret $secret -Path $path -AllowUnprotected -WarningAction SilentlyContinue
 
@@ -250,8 +250,7 @@ Describe 'Redaction reaches the log file' {
   }
 
   It 'masks a registered secret in a Write-PrtgLog line' {
-    $dir = Join-Path $TestDrive "redact-logs-$(Get-Random)"
-    [void] (New-Item -ItemType Directory -Path $dir)
+    $dir = New-TestStore 'redact-logs'
     InModuleScope PrtgSensorKit -Parameters @{ Dir = $dir } {
       param($Dir)
       $script:PrtgLogFile = $null

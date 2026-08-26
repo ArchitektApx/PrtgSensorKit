@@ -16,7 +16,7 @@ BeforeAll {
 Describe 'Write-PrtgLog run files' {
   BeforeEach {
     Reset-PrtgLogState
-    $dir = Join-Path $TestDrive "logs-$(Get-Random)"
+    $dir = New-TestStore 'logs'
   }
 
   It 'creates one run file named <scriptname>_<timestamp>_<PID>.log' {
@@ -81,8 +81,7 @@ Describe 'Write-PrtgLog run files' {
 Describe 'Write-PrtgLog pruning' {
   BeforeEach {
     Reset-PrtgLogState
-    $dir = Join-Path $TestDrive "logs-$(Get-Random)"
-    [void] (New-Item -ItemType Directory -Path $dir)
+    $dir = New-TestStore 'logs'
     # Run files this script would have written itself: '<scriptname>_<stamp>_<pid>.log'.
     # Only these are prunable - see the 'never prunes files it did not create' cases below.
     foreach ($i in 1..5) {
@@ -108,8 +107,7 @@ Describe 'Write-PrtgLog pruning' {
 Describe 'Write-PrtgLog pruning never deletes files it did not create' {
   BeforeEach {
     Reset-PrtgLogState
-    $dir = Join-Path $TestDrive "shared-logs-$(Get-Random)"
-    [void] (New-Item -ItemType Directory -Path $dir)
+    $dir = New-TestStore 'shared-logs'
   }
 
   It 'leaves unrelated application logs alone' {
@@ -155,7 +153,7 @@ Describe 'Write-PrtgLog pruning never deletes files it did not create' {
 Describe 'Invoke-PrtgSensor -EnableLogging lifecycle' {
   BeforeEach {
     Reset-PrtgLogState
-    $dir = Join-Path $TestDrive "logs-$(Get-Random)"
+    $dir = New-TestStore 'logs'
   }
 
   It 'logs start and a success summary with channel count, message, and duration' {
@@ -184,7 +182,7 @@ Describe 'Invoke-PrtgSensor -EnableLogging lifecycle' {
   }
 
   It 'restores the previous run file when -LogPath sent this call elsewhere' {
-    $other = Join-Path $TestDrive "logs-other-$(Get-Random)"
+    $other = New-TestStore 'logs-other'
     InModuleScope PrtgSensorKit -Parameters @{ Dir = $dir; Other = $other } {
       param($Dir, $Other)
       $script:PrtgLogDirectory = $Dir
@@ -250,7 +248,7 @@ Describe 'Invoke-PrtgSensor -EnableLogging lifecycle' {
 
   It 'starts a new run file when -EnableLogging -LogPath points at a different folder' {
     [void] (Invoke-PrtgSensor -EnableLogging -LogPath $dir { Set-PrtgMessage 'ok' })
-    $dir2 = Join-Path $TestDrive "logs2-$(Get-Random)"
+    $dir2 = New-TestStore 'logs2'
     [void] (Invoke-PrtgSensor -EnableLogging -LogPath $dir2 { Set-PrtgMessage 'ok' })
     @(Get-ChildItem -LiteralPath $dir2 -Filter '*.log').Count | Should -Be 1
   }
@@ -267,7 +265,7 @@ Describe 'Invoke-PrtgSensor -EnableLogging lifecycle' {
 Describe 'Write-PrtgLog edge paths' {
   BeforeEach {
     Reset-PrtgLogState
-    $dir = Join-Path $TestDrive "logs-$(Get-Random)"
+    $dir = New-TestStore 'logs'
   }
 
   It 'falls back to a console run file and the CWD when no script is on the call stack' {
@@ -284,7 +282,6 @@ Describe 'Write-PrtgLog edge paths' {
 
   It 'swallows prune failures and keeps logging' {
     Mock -ModuleName PrtgSensorKit Remove-Item { throw 'delete denied' }
-    [void] (New-Item -ItemType Directory -Path $dir)
     foreach ($i in 1..3) {
       $stale = Join-Path $dir "old_$i.log"
       Set-Content -LiteralPath $stale -Value 'old run'
@@ -302,8 +299,8 @@ Describe 'Invoke-PrtgSensor -LogPath run file restore' {
   BeforeEach { Reset-PrtgLogState }
 
   It 'restores the run file after the call so later lines go back to the original folder' {
-    $a = Join-Path $TestDrive "log-a-$(Get-Random)"
-    $b = Join-Path $TestDrive "log-b-$(Get-Random)"
+    $a = New-TestStore 'log-a'
+    $b = New-TestStore 'log-b'
 
     InModuleScope PrtgSensorKit -Parameters @{ Dir = $a } { param($Dir) $script:PrtgLogDirectory = $Dir }
     Write-PrtgLog 'before'
@@ -326,8 +323,8 @@ Describe 'Invoke-PrtgSensor -LogPath run file restore' {
   }
 
   It 'restores the run file even when the block throws' {
-    $a = Join-Path $TestDrive "log-a2-$(Get-Random)"
-    $b = Join-Path $TestDrive "log-b2-$(Get-Random)"
+    $a = New-TestStore 'log-a2'
+    $b = New-TestStore 'log-b2'
     InModuleScope PrtgSensorKit -Parameters @{ Dir = $a } { param($Dir) $script:PrtgLogDirectory = $Dir }
     Write-PrtgLog 'before'
     [void] (Invoke-PrtgSensor -EnableLogging -LogPath $b { throw 'boom' })
@@ -337,8 +334,8 @@ Describe 'Invoke-PrtgSensor -LogPath run file restore' {
   }
 
   It 'still restores the directory and retention settings' {
-    $a = Join-Path $TestDrive "log-a3-$(Get-Random)"
-    $b = Join-Path $TestDrive "log-b3-$(Get-Random)"
+    $a = New-TestStore 'log-a3'
+    $b = New-TestStore 'log-b3'
     InModuleScope PrtgSensorKit -Parameters @{ Dir = $a } { param($Dir) $script:PrtgLogDirectory = $Dir }
     [void] (Invoke-PrtgSensor -EnableLogging -LogPath $b -MaxLogs 3 { Set-PrtgMessage 'ok' })
     InModuleScope PrtgSensorKit { $script:PrtgLogDirectory } | Should -Be $a
