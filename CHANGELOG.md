@@ -49,6 +49,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   tests.** Its `-NoCreate` switch marks the rule the old code hid: the state store creates its
   own folder, the secret store deliberately does not. Pass and skip counts are unchanged.
 
+- **The log scope capture and restore moved out of `Invoke-PrtgSensor` into a private
+  `Push-PrtgLogScope` / `Pop-PrtgLogScope` pair.** The deliberately asymmetric run file
+  restore moved across unchanged and now has its own tests. All three logging modes and
+  relative log path anchoring behave exactly as before.
+
 ## [1.4.2] - 2026-08-25
 
 ### Changed

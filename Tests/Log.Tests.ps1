@@ -342,3 +342,94 @@ Describe 'Invoke-PrtgSensor -LogPath run file restore' {
     InModuleScope PrtgSensorKit { $script:PrtgLogMaxLogs } | Should -Be 30
   }
 }
+
+Describe 'Push-PrtgLogScope and Pop-PrtgLogScope' {
+  BeforeEach { Reset-PrtgLogState }
+  AfterEach { Reset-PrtgLogState }
+
+  It 'keeps the run file the scope itself created' {
+    # Nothing was discarded, so nothing is restored; an unconditional restore would null the
+    # run file this scope created and the next Write-PrtgLog would start a second file.
+    $dir = New-TestStore 'scope-created'
+    $seen = InModuleScope PrtgSensorKit -Parameters @{ Dir = $dir } {
+      param($Dir)
+      $token = Push-PrtgLogScope -LogPath $Dir
+      Write-PrtgLog 'creates the run file'
+      $created = $script:PrtgLogFile
+      Pop-PrtgLogScope $token
+      [PSCustomObject]@{ RestoreFile = $token.RestoreFile; Created = $created; After = $script:PrtgLogFile }
+    }
+
+    $seen.Created | Should -Not -BeNullOrEmpty
+    $seen.RestoreFile | Should -BeFalse
+    $seen.After | Should -Be $seen.Created
+  }
+
+  It 'restores the earlier run file the scope discarded' {
+    # An earlier call pinned a run file elsewhere; the push discarded it, so the pop restores it.
+    $a = New-TestStore 'scope-a'
+    $b = New-TestStore 'scope-b'
+    $seen = InModuleScope PrtgSensorKit -Parameters @{ A = $a; B = $b } {
+      param($A, $B)
+      $script:PrtgLogDirectory = $A
+      Write-PrtgLog 'pins the run file in A'
+      $pinned = $script:PrtgLogFile
+      $token = Push-PrtgLogScope -LogPath $B
+      $inside = $script:PrtgLogFile
+      Pop-PrtgLogScope $token
+      [PSCustomObject]@{ RestoreFile = $token.RestoreFile; Pinned = $pinned; Inside = $inside; After = $script:PrtgLogFile }
+    }
+
+    $seen.Pinned | Should -Not -BeNullOrEmpty
+    $seen.RestoreFile | Should -BeTrue
+    $seen.Inside | Should -BeNullOrEmpty
+    $seen.After | Should -Be $seen.Pinned
+  }
+
+  It 'anchors a relative log path to the sensor script folder, not the working directory' {
+    $relative = "RelScope-$(Get-Random)"
+    $expected = Join-Path $PSScriptRoot $relative
+    $elsewhere = New-TestStore 'scope-cwd'
+
+    $resolved = InModuleScope PrtgSensorKit -Parameters @{ Relative = $relative; Elsewhere = $elsewhere } {
+      param($Relative, $Elsewhere)
+      $token = $null
+      Push-Location $Elsewhere
+      try {
+        $token = Push-PrtgLogScope -LogPath $Relative
+        $script:PrtgLogDirectory
+      } finally {
+        Pop-Location
+        Pop-PrtgLogScope $token
+      }
+    }
+
+    $resolved | Should -Be $expected
+    $resolved | Should -Not -BeLike (Join-Path $elsewhere '*')
+    # The push only resolves; the folder is created lazily by the first log write.
+    Test-Path -LiteralPath $expected | Should -BeFalse
+  }
+
+  It 'restores the session directory and retention, and tolerates a null token' {
+    $dir = New-TestStore 'scope-settings'
+    $seen = InModuleScope PrtgSensorKit -Parameters @{ Dir = $dir } {
+      param($Dir)
+      $script:PrtgLogDirectory = $Dir
+      $script:PrtgLogMaxLogs = 7
+      $token = Push-PrtgLogScope -LogPath (Join-Path $Dir 'nested') -MaxLogs 2
+      $inside = [PSCustomObject]@{ Directory = $script:PrtgLogDirectory; MaxLogs = $script:PrtgLogMaxLogs }
+      Pop-PrtgLogScope $token
+      Pop-PrtgLogScope $null
+      [PSCustomObject]@{
+        Inside    = $inside
+        Directory = $script:PrtgLogDirectory
+        MaxLogs   = $script:PrtgLogMaxLogs
+      }
+    }
+
+    $seen.Inside.Directory | Should -Be (Join-Path $dir 'nested')
+    $seen.Inside.MaxLogs | Should -Be 2
+    $seen.Directory | Should -Be $dir
+    $seen.MaxLogs | Should -Be 7
+  }
+}
