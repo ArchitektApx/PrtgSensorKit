@@ -41,6 +41,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **ADR 0006 records why the Doctor's parse context carries a token stream nothing reads.**
   It stays so a future check needing raw tokens costs no second pass. No source changed.
 
+- **ADR 0005 records three decisions about the output path.** What redaction covers and why
+  channel names and values are outside it; why the output and error documents share no shape;
+  why the two identical response tails stay inline. No source changed.
+
 ## [1.4.2] - 2026-08-25
 
 ### Changed
