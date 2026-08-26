@@ -19,6 +19,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The coverage runner's header no longer recommends a launch form for a false reason.** It
   pointed at a function this repository never had; the sentence is gone.
 
+- **Both test runners now refuse an empty or mis-pathed test folder.** The coverage runner
+  used to print zero passed, zero failed and exit clean. The guard and the suite path
+  resolution live in `Tools/test_suite_path.ps1`, shared by both runners.
+
 ## [1.4.2] - 2026-08-25
 
 ### Changed

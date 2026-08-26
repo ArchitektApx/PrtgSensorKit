@@ -24,8 +24,10 @@ if (-not $psm1) { throw "Built module not found under Dist/. Build first." }
 . (Join-Path $PSScriptRoot 'pester_pin.ps1')
 Import-PinnedPester
 
+. (Join-Path $PSScriptRoot 'test_suite_path.ps1')
+
 $c = New-PesterConfiguration
-$c.Run.Path = Join-Path $repo 'Tests'
+$c.Run.Path = Resolve-TestSuitePath
 $c.Run.PassThru = $true
 $c.Output.Verbosity = 'None'
 $c.CodeCoverage.Enabled = $true
