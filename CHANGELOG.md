@@ -33,6 +33,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   resolved value. PSK0101, PSK0102 and PSK0103 are untouched: each asks about a specific host
   and must keep doing so. The glossary defines the term.
 
+- **The check list in `Invoke-PrtgSensorDoctor`'s help is pinned against the checks that
+  run.** The registration test now compares the registry, the check functions and the
+  documented identifiers as three sets, so a check cannot ship undocumented or documented but
+  removed. Order stays unpinned.
+
 ## [1.4.2] - 2026-08-25
 
 ### Changed
