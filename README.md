@@ -176,6 +176,8 @@ lower-level commands directly.
 ./tasks.ps1 prepare_release 1.1.0      # gates + changelog check, stamps version, verified rebuild
 ```
 
+Work done here with coding agents follows [Vibe Driven Development](https://github.com/ArchitektApx/Vibe-Driven-Development).
+
 ## 📄 License
 
 Released under the [MIT License](LICENSE).

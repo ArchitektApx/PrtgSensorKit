@@ -18,15 +18,9 @@ Tools/fuzz-failures/
 .claude/
 .vscode/
 
-# VDD Artifacts
-CLAUDE.md
+# VDD scratch dir
 .scratch/
-Docs/agents
-docs/agents
-Docs/adr/
-docs/adr/
 LOOP.md
-CONTEXT.md
 
 # Understand-Anything knowledge graph
 .ua/

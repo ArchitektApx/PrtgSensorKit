@@ -5,6 +5,17 @@ All notable changes to PrtgSensorKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+#### Internal
+
+- **The glossary, the decision records and the agent documentation are tracked.**
+  `CONTEXT.md`, `Docs/adr/`, `CLAUDE.md` and `Docs/agents/` were gitignored, so contributors
+  could not see the decisions already made. The README now says work with coding agents
+  follows Vibe Driven Development.
+
 ## [1.4.2] - 2026-08-25
 
 ### Changed
