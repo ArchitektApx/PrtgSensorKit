@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `New-PrtgDynamicParameter`. The parameter attribute is still built fresh per call (the
   v1.4.2 fix), and every unit family binds exactly as before.
 
+- **The Doctor resolves the effective target host once.** PSK0104 re-derived the pwsh over
+  64-bit over 32-bit precedence next to a lookup that already had half of it; it now reads one
+  resolved value. PSK0101, PSK0102 and PSK0103 are untouched: each asks about a specific host
+  and must keep doing so. The glossary defines the term.
+
 ## [1.4.2] - 2026-08-25
 
 ### Changed

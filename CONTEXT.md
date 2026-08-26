@@ -94,3 +94,8 @@ broken in more than one place.
 **Parse context**:
 The whole-script analysis a run performs once and every check reads from, so
 that adding a check costs no extra pass over the script.
+
+**Effective target host**:
+The host a sensor script ends up running in after any restart helper it uses,
+decided as pwsh over 64-bit over 32-bit. Distinct from the host PRTG starts,
+which is always the 32-bit host no matter what the script restarts into.
