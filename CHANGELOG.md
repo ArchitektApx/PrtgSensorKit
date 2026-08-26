@@ -5,6 +5,55 @@ All notable changes to PrtgSensorKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.4.3] - 2026-08-26
+
+### Changed
+
+#### Internal
+
+- **The glossary, the decision records and the agent documentation are tracked.**
+  `CONTEXT.md`, `Docs/adr/`, `CLAUDE.md` and `Docs/agents/` were gitignored, so contributors
+  could not see the decisions already made. The README now says work with coding agents
+  follows Vibe Driven Development.
+
+- **The coverage runner's header no longer recommends a launch form for a false reason.** It
+  pointed at a function this repository never had; the sentence is gone.
+
+- **Both test runners now refuse an empty or mis-pathed test folder.** The coverage runner
+  used to print zero passed, zero failed and exit clean. The guard and the suite path
+  resolution live in `Tools/test_suite_path.ps1`, shared by both runners.
+
+- **The channel builder's four companion parameters come from one factory.** Three
+  near-identical arms of the dynamic parameter block are now single calls to a private
+  `New-PrtgDynamicParameter`. The parameter attribute is still built fresh per call (the
+  v1.4.2 fix), and every unit family binds exactly as before.
+
+- **The Doctor resolves the effective target host once.** PSK0104 re-derived the pwsh over
+  64-bit over 32-bit precedence next to a lookup that already had half of it; it now reads one
+  resolved value. PSK0101, PSK0102 and PSK0103 are untouched: each asks about a specific host
+  and must keep doing so. The glossary defines the term.
+
+- **The check list in `Invoke-PrtgSensorDoctor`'s help is pinned against the checks that
+  run.** The registration test now compares the registry, the check functions and the
+  documented identifiers as three sets, so a check cannot ship undocumented or documented but
+  removed. Order stays unpinned.
+
+- **ADR 0006 records why the Doctor's parse context carries a token stream nothing reads.**
+  It stays so a future check needing raw tokens costs no second pass. No source changed.
+
+- **ADR 0005 records three decisions about the output path.** What redaction covers and why
+  channel names and values are outside it; why the output and error documents share no shape;
+  why the two identical response tails stay inline. No source changed.
+
+- **One `New-TestStore` fixture replaces about eighty hand-written store folders in the
+  tests.** Its `-NoCreate` switch marks the rule the old code hid: the state store creates its
+  own folder, the secret store deliberately does not. Pass and skip counts are unchanged.
+
+- **The log scope capture and restore moved out of `Invoke-PrtgSensor` into a private
+  `Push-PrtgLogScope` / `Pop-PrtgLogScope` pair.** The deliberately asymmetric run file
+  restore moved across unchanged and now has its own tests. All three logging modes and
+  relative log path anchoring behave exactly as before.
+
 ## [1.4.2] - 2026-08-25
 
 ### Changed
@@ -467,7 +516,8 @@ shape changed. Sensors written against 1.0.0 behave identically after upgrading.
 - Full comment-based help on every command, 17 runnable examples, Pester suite run
   against the built module on Windows PowerShell 5.1 and PowerShell 7.
 
-[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.2...HEAD
+[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.3...HEAD
+[1.4.3]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.0...v1.4.1
 [1.4.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.3.0...v1.4.0

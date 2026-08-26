@@ -6,7 +6,7 @@ BeforeAll {
 }
 
 Describe 'Use-PrtgCachedResult hit and miss' {
-  BeforeEach { $dir = Join-Path $TestDrive "cache-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'cache' }
 
   It 'runs the block on a miss, persists the result, and returns it' {
     $counter = @{ n = 0 }
@@ -59,7 +59,7 @@ Describe 'Use-PrtgCachedResult hit and miss' {
 }
 
 Describe 'Use-PrtgCachedResult error handling' {
-  BeforeEach { $dir = Join-Path $TestDrive "cache-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'cache' }
 
   It 'propagates a throwing block and keeps the stale entry' {
     Save-PrtgSensorState -Key 'k' -Value 'stale' -Path $dir
@@ -70,7 +70,7 @@ Describe 'Use-PrtgCachedResult error handling' {
 }
 
 Describe 'Use-PrtgCachedResult and the state tooling' {
-  BeforeEach { $dir = Join-Path $TestDrive "cache-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'cache' }
 
   It 'writes entries Get-PrtgSensorState can read' {
     [void] (Use-PrtgCachedResult -Key 'shared' -MaxAge $script:FiveMinutes -Path $dir { 42 })
@@ -87,10 +87,9 @@ Describe 'Use-PrtgCachedResult and the state tooling' {
 }
 
 Describe 'Use-PrtgCachedResult locking' {
-  BeforeEach { $dir = Join-Path $TestDrive "cache-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'cache' }
 
   It 'throws on lock timeout instead of fetching' {
-    [void] (New-Item -ItemType Directory -Path $dir)
     $handle = Get-TestLockHandle (Join-Path $dir 'held.clixml.lock')
     try {
       { Use-PrtgCachedResult -Key 'held' -MaxAge $script:FiveMinutes -Path $dir -TimeoutSeconds 0 { 'x' } } |
@@ -101,7 +100,6 @@ Describe 'Use-PrtgCachedResult locking' {
   }
 
   It 'bypasses the lock with -Force' {
-    [void] (New-Item -ItemType Directory -Path $dir)
     $handle = Get-TestLockHandle (Join-Path $dir 'forced.clixml.lock')
     try {
       Use-PrtgCachedResult -Key 'forced' -MaxAge $script:FiveMinutes -Path $dir -Force { 'anyway' } | Should -Be 'anyway'
@@ -155,10 +153,9 @@ Use-PrtgCachedResult -Key 'herd' -MaxAge (New-TimeSpan -Minutes 5) -Path '$dir' 
 }
 
 Describe 'Use-PrtgCachedResult resilience' {
-  BeforeEach { $dir = Join-Path $TestDrive "cache-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'cache' }
 
   It 'warns and refetches when the cache file is corrupt' {
-    [void] (New-Item -ItemType Directory -Path $dir)
     Set-Content -LiteralPath (Join-Path $dir 'corrupt.clixml') -Value 'this is not clixml'
     $value = Use-PrtgCachedResult -Key 'corrupt' -MaxAge $script:FiveMinutes -Path $dir -WarningVariable warnings 3>$null { 'refetched' }
     $value | Should -Be 'refetched'
@@ -184,7 +181,6 @@ Describe 'Use-PrtgCachedResult resilience' {
   It 'leaves a fresh temp file alone and clears an old one' {
     # -Force skips the lock, so two instances can be in the write at once; only a temp file old
     # enough to be a leftover from a killed run is removed.
-    [void] (New-Item -ItemType Directory -Path $dir)
     $fresh = Join-Path $dir 'sweep.clixml.aaa.tmp'
     $old = Join-Path $dir 'sweep.clixml.bbb.tmp'
     Set-Content -LiteralPath $fresh -Value 'in flight'
@@ -199,7 +195,6 @@ Describe 'Use-PrtgCachedResult resilience' {
     # Depth only bites on rich .NET objects (a FileInfo's Directory, a CIM instance), not on
     # PSCustomObject trees, so a FileInfo is what makes the parameter observable: at depth 1 its
     # Directory flattens to a string, at the default it survives as an object.
-    [void] (New-Item -ItemType Directory -Path $dir)
     $probe = New-Item -ItemType File -Path (Join-Path $dir 'probe.txt')
     Use-PrtgCachedResult -Key 'shallow' -MaxAge $script:FiveMinutes -Path $dir -Depth 1 { $probe } | Out-Null
     $flat = Use-PrtgCachedResult -Key 'shallow' -MaxAge $script:FiveMinutes -Path $dir { 'never' }
@@ -220,8 +215,7 @@ Describe 'Use-PrtgCachedResult resilience' {
 
 Describe 'Use-PrtgCachedResult timestamp tie-breaking' {
   It 'serves the last-appended entry when timestamps tie' {
-    $dir = Join-Path $TestDrive "cache-$(Get-Random)"
-    [void] (New-Item -ItemType Directory -Path $dir)
+    $dir = New-TestStore 'cache'
     $ts = [DateTime]::UtcNow
     @(
       [PSCustomObject]@{ Value = 'older'; Timestamp = $ts }
@@ -232,7 +226,7 @@ Describe 'Use-PrtgCachedResult timestamp tie-breaking' {
 }
 
 Describe 'Use-PrtgCachedResult -SkipNullCache' {
-  BeforeEach { $dir = Join-Path $TestDrive "cache-null-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'cache-null' }
 
   It 'refetches instead of serving a cached $null' {
     $counter = @{ n = 0 }

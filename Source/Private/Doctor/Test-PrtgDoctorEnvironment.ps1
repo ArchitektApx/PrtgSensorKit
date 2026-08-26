@@ -23,6 +23,25 @@ function Test-PrtgDoctorEnvironment {
     $pwshCommand = Get-Command -Name 'pwsh' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   }
 
+  # The effective target host: where the script's own code ends up after any restart helper,
+  # pwsh over 64-bit over 32-bit. Only PSK0104 asks that question, so only PSK0104 reads this.
+  #
+  # The other three are not asking it and must not be routed through here. The two restart
+  # switches are independent booleans and a script may call both helpers: with both set the
+  # effective target is pwsh, but PSK0102 has to keep probing the 64-bit host or it stops
+  # answering the question it was asked. PSK0101 probes the 32-bit host unconditionally
+  # because that is the host PRTG starts, whatever the script restarts into. PSK0103 needs
+  # the pwsh command itself, not a target, and already reads the lookup above.
+  $targetExe = $null
+  $targetName = ''
+  if ($UsesRestartInPwsh) {
+    if ($pwshCommand) { $targetExe = $pwshCommand.Source; $targetName = 'pwsh (PowerShell 7+)' }
+  } elseif ($UsesRestart64Bit) {
+    $targetExe = Get-PrtgDoctorHostPath -Bitness 'x64'; $targetName = '64-bit Windows PowerShell 5.1'
+  } else {
+    $targetExe = Get-PrtgDoctorHostPath -Bitness 'x86'; $targetName = '32-bit Windows PowerShell 5.1'
+  }
+
   # --- PSK0101: kit resolvable in 32-bit Windows PowerShell 5.1 -------------------------
   $ps32 = Get-PrtgDoctorHostPath -Bitness 'x86'
   if (Invoke-PrtgDoctorModuleProbe -Executable $ps32 -ModuleName 'PrtgSensorKit') {
@@ -70,16 +89,6 @@ function Test-PrtgDoctorEnvironment {
   if ($dependencies.Count -eq 0) {
     $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0104' -Severity 'Pass' -Message 'No statically imported dependency modules to check.'))
   } else {
-    $targetExe = $null
-    $targetName = ''
-    if ($UsesRestartInPwsh) {
-      if ($pwshCommand) { $targetExe = $pwshCommand.Source; $targetName = 'pwsh (PowerShell 7+)' }
-    } elseif ($UsesRestart64Bit) {
-      $targetExe = Get-PrtgDoctorHostPath -Bitness 'x64'; $targetName = '64-bit Windows PowerShell 5.1'
-    } else {
-      $targetExe = Get-PrtgDoctorHostPath -Bitness 'x86'; $targetName = '32-bit Windows PowerShell 5.1'
-    }
-
     if ($null -eq $targetExe) {
       $findings.Add((New-PrtgDoctorFinding -CheckId 'PSK0104' -Severity 'Warning' `
         -Message 'Dependency modules could not be checked: the target host (pwsh) is missing.' `

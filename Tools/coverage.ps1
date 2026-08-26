@@ -5,9 +5,6 @@
 #   ./tasks.ps1 coverage [-MinimumPercent 90]
 #   pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Tools/coverage.ps1
 #
-# Prefer that second form when comparing runs: the injected flags exercise
-# Get-PrtgRelaunchArgs' dedup branches, which a plain launch leaves uncovered.
-#
 # Coverage is per host, and the relaunch cmdlets always read as missed (they run in a child
 # process). Compare hosts before calling a line untested.
 
@@ -27,8 +24,10 @@ if (-not $psm1) { throw "Built module not found under Dist/. Build first." }
 . (Join-Path $PSScriptRoot 'pester_pin.ps1')
 Import-PinnedPester
 
+. (Join-Path $PSScriptRoot 'test_suite_path.ps1')
+
 $c = New-PesterConfiguration
-$c.Run.Path = Join-Path $repo 'Tests'
+$c.Run.Path = Resolve-TestSuitePath
 $c.Run.PassThru = $true
 $c.Output.Verbosity = 'None'
 $c.CodeCoverage.Enabled = $true

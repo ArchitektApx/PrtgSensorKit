@@ -10,14 +10,14 @@ $onWindows = Test-OnWindowsHost
 
 Describe 'Save/Get-PrtgSecret (cross-platform)' {
   It 'round-trips a SecureString (AsPlainText matches)' {
-    $path = Join-Path $TestDrive 'secrets'
+    $path = New-TestStore 'secrets'
     $ss = ConvertTo-SecureString 'tok3n' -AsPlainText -Force
     Save-PrtgSecret -Name 'Api' -Secret $ss -Path $path -AllowUnprotected -WarningAction SilentlyContinue
     Get-PrtgSecret -Name 'Api' -Path $path -AllowUnprotected -AsPlainText | Should -Be 'tok3n'
   }
 
   It 'round-trips a PSCredential (user + password)' {
-    $path = Join-Path $TestDrive 'secrets'
+    $path = New-TestStore 'secrets'
     $cred = [System.Management.Automation.PSCredential]::new(
       'dom\user', (ConvertTo-SecureString 'pw' -AsPlainText -Force))
     Save-PrtgSecret -Name 'Login' -Credential $cred -Path $path -AllowUnprotected -WarningAction SilentlyContinue
@@ -32,12 +32,13 @@ Describe 'Save/Get-PrtgSecret (cross-platform)' {
   }
 
   It 'errors clearly when reading a missing secret' {
-    { Get-PrtgSecret -Name 'DoesNotExist' -Path (Join-Path $TestDrive 'empty') -AllowUnprotected -ErrorAction Stop } |
+    $path = New-TestStore 'empty' -NoCreate
+    { Get-PrtgSecret -Name 'DoesNotExist' -Path $path -AllowUnprotected -ErrorAction Stop } |
       Should -Throw
   }
 
   It 'returns the password with -AsPlainText for a stored PSCredential' {
-    $path = Join-Path $TestDrive 'plain'
+    $path = New-TestStore 'plain'
     $cred = [System.Management.Automation.PSCredential]::new(
       'u', (ConvertTo-SecureString 'pw-plain' -AsPlainText -Force))
     Save-PrtgSecret -Name 'Cred' -Credential $cred -Path $path -AllowUnprotected -WarningAction SilentlyContinue
@@ -45,8 +46,7 @@ Describe 'Save/Get-PrtgSecret (cross-platform)' {
   }
 
   It 'throws a clear error when the stored file cannot be read back' {
-    $path = Join-Path $TestDrive 'broken'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'broken'
     Set-Content -LiteralPath (Join-Path $path 'Broke.clixml') -Value 'not valid clixml'
     { Get-PrtgSecret -Name 'Broke' -Path $path -AllowUnprotected -ErrorAction Stop } | Should -Throw
   }
@@ -54,12 +54,14 @@ Describe 'Save/Get-PrtgSecret (cross-platform)' {
 
 Describe 'Save/Get-PrtgSecret off Windows guard' -Skip:$onWindows {
   It 'Save refuses without -AllowUnprotected off Windows' {
+    $path = New-TestStore 's'
     { Save-PrtgSecret -Name 'X' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) `
-        -Path (Join-Path $TestDrive 's') -ErrorAction Stop } | Should -Throw
+        -Path $path -ErrorAction Stop } | Should -Throw
   }
 
   It 'Get refuses without -AllowUnprotected off Windows' {
-    { Get-PrtgSecret -Name 'X' -Path (Join-Path $TestDrive 's') -ErrorAction Stop } | Should -Throw
+    $path = New-TestStore 's'
+    { Get-PrtgSecret -Name 'X' -Path $path -ErrorAction Stop } | Should -Throw
   }
 
   It 'round-trips using the default temp path (no -Path) off Windows' {
@@ -76,13 +78,13 @@ Describe 'Save/Get-PrtgSecret off Windows guard' -Skip:$onWindows {
 
 Describe 'Save/Get-PrtgSecret DPAPI + ACL (Windows only)' -Tag 'Windows' -Skip:(-not $onWindows) {
   It 'encrypts the blob (not plaintext on disk)' {
-    $path = Join-Path $TestDrive 'wsecrets'
+    $path = New-TestStore 'wsecrets'
     Save-PrtgSecret -Name 'Api' -Secret (ConvertTo-SecureString 'PLAINTEXT-MARKER' -AsPlainText -Force) -Path $path
     (Get-Content -Raw (Join-Path $path 'Api.clixml')) | Should -Not -Match 'PLAINTEXT-MARKER'
   }
 
   It 'locks the file ACL (inheritance off, no Everyone/Users)' {
-    $path = Join-Path $TestDrive 'wsecrets2'
+    $path = New-TestStore 'wsecrets2'
     Save-PrtgSecret -Name 'Api' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) -Path $path
     $acl = Get-Acl (Join-Path $path 'Api.clixml')
     $acl.AreAccessRulesProtected | Should -BeTrue
@@ -90,7 +92,7 @@ Describe 'Save/Get-PrtgSecret DPAPI + ACL (Windows only)' -Tag 'Windows' -Skip:(
   }
 
   It 'grants exactly the saving account, Administrators, and SYSTEM on the file' {
-    $path = Join-Path $TestDrive 'aclexact'
+    $path = New-TestStore 'aclexact'
     Save-PrtgSecret -Name 'Api' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) -Path $path
     $acl = Get-Acl (Join-Path $path 'Api.clixml')
     $sids = $acl.Access | ForEach-Object { $_.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value }
@@ -105,14 +107,14 @@ Describe 'Save/Get-PrtgSecret DPAPI + ACL (Windows only)' -Tag 'Windows' -Skip:(
 
   It 'leaves the secret folder ACL alone' {
     # Regression test for the multi-account lockout.
-    $path = Join-Path $TestDrive 'folderacl'
+    $path = New-TestStore 'folderacl'
     Save-PrtgSecret -Name 'Api' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) -Path $path
     (Get-Acl $path).AreAccessRulesProtected | Should -BeFalse
   }
 
   It 'keeps the file ACL when the same secret name is saved twice' {
     # A re-save swaps a new file in over the old one, so the ACL must come out unchanged.
-    $path = Join-Path $TestDrive 'resave'
+    $path = New-TestStore 'resave'
     Save-PrtgSecret -Name 'Api' -Secret (ConvertTo-SecureString 'one' -AsPlainText -Force) -Path $path
     $first = (Get-Acl (Join-Path $path 'Api.clixml')).Sddl
     Save-PrtgSecret -Name 'Api' -Secret (ConvertTo-SecureString 'two' -AsPlainText -Force) -Path $path
@@ -125,7 +127,7 @@ Describe 'Save/Get-PrtgSecret DPAPI + ACL (Windows only)' -Tag 'Windows' -Skip:(
     # [File]::Replace keeps the destination's ACL, not the temp file's, so a re-save over a file
     # whose ACL is wrong (saved by another account, or edited by hand) would keep the wrong one.
     # The previous test cannot catch this: both ACLs are already correct there.
-    $path = Join-Path $TestDrive 'reacl'
+    $path = New-TestStore 'reacl'
     Save-PrtgSecret -Name 'Relock' -Secret (ConvertTo-SecureString 'one' -AsPlainText -Force) -Path $path
     $file = Join-Path $path 'Relock.clixml'
 
@@ -150,7 +152,7 @@ Describe 'Save/Get-PrtgSecret DPAPI + ACL (Windows only)' -Tag 'Windows' -Skip:(
   }
 
   It 'a second secret in the same folder does not disturb the first file ACL' {
-    $path = Join-Path $TestDrive 'twosecrets'
+    $path = New-TestStore 'twosecrets'
     Save-PrtgSecret -Name 'A' -Secret (ConvertTo-SecureString 'a' -AsPlainText -Force) -Path $path
     $firstSddl = (Get-Acl (Join-Path $path 'A.clixml')).Sddl
     Save-PrtgSecret -Name 'B' -Secret (ConvertTo-SecureString 'b' -AsPlainText -Force) -Path $path
@@ -161,8 +163,7 @@ Describe 'Save/Get-PrtgSecret DPAPI + ACL (Windows only)' -Tag 'Windows' -Skip:(
 
   It 'an explicit foreign ACE on the folder survives a save' {
     # BUILTIN\Users (S-1-5-32-545) stands in for a second sensor account.
-    $path = Join-Path $TestDrive 'foreignace'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'foreignace'
     $users = [System.Security.Principal.SecurityIdentifier]::new('S-1-5-32-545')
     $acl = Get-Acl $path
     $acl.AddAccessRule([System.Security.AccessControl.FileSystemAccessRule]::new(
@@ -174,7 +175,7 @@ Describe 'Save/Get-PrtgSecret DPAPI + ACL (Windows only)' -Tag 'Windows' -Skip:(
   }
 
   It 'never leaves the blob readable under inherited permissions' {
-    $path = Join-Path $TestDrive 'ordering'
+    $path = New-TestStore 'ordering'
     Save-PrtgSecret -Name 'Api' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) -Path $path
     $acl = Get-Acl (Join-Path $path 'Api.clixml')
     $acl.AreAccessRulesProtected | Should -BeTrue
@@ -194,16 +195,14 @@ Describe 'Save/Get-PrtgSecret DPAPI + ACL (Windows only)' -Tag 'Windows' -Skip:(
 
 Describe 'Get-PrtgSecret -AsPlainText with a non-secret payload' {
   It 'throws instead of silently returning the object' {
-    $path = Join-Path $TestDrive 'foreign'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'foreign'
     'just a plain string' | Export-Clixml -LiteralPath (Join-Path $path 'Odd.clixml')
     { Get-PrtgSecret -Name 'Odd' -Path $path -AllowUnprotected -AsPlainText -ErrorAction Stop } |
       Should -Throw -ExpectedMessage '*not a PSCredential or SecureString*'
   }
 
   It 'still returns the raw object without -AsPlainText' {
-    $path = Join-Path $TestDrive 'foreign2'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'foreign2'
     'just a plain string' | Export-Clixml -LiteralPath (Join-Path $path 'Odd.clixml')
     Get-PrtgSecret -Name 'Odd' -Path $path -AllowUnprotected | Should -Be 'just a plain string'
   }
@@ -213,8 +212,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   It 'reports a truncated secret file clearly instead of crashing' {
     # Import-Clixml returns $null for a truncated file WITHOUT throwing, so this is not covered
     # by the decrypt-failure catch.
-    $path = Join-Path $TestDrive 'trunc'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'trunc'
     # Well-formed but object-less: this is what a save that died after the header leaves behind.
     Set-Content -LiteralPath (Join-Path $path 'Cut.clixml') -Value '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"></Objs>'
     { Get-PrtgSecret -Name 'Cut' -Path $path -AllowUnprotected -ErrorAction Stop } |
@@ -222,8 +220,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   }
 
   It 'reports it the same way with -AsPlainText' {
-    $path = Join-Path $TestDrive 'trunc2'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'trunc2'
     # Well-formed but object-less: this is what a save that died after the header leaves behind.
     Set-Content -LiteralPath (Join-Path $path 'Cut.clixml') -Value '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"></Objs>'
     { Get-PrtgSecret -Name 'Cut' -Path $path -AllowUnprotected -AsPlainText -ErrorAction Stop } |
@@ -233,8 +230,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   It 'cleans up its temp file when the save fails' {
     # Only the rename is mocked, so Export-Clixml really writes the temp file and the cleanup
     # runs against one that exists on disk.
-    $path = Join-Path $TestDrive 'failsave'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'failsave'
     Mock -CommandName Move-Item -ModuleName PrtgSensorKit -MockWith { throw 'simulated rename failure' }
     { Save-PrtgSecret -Name 'Doomed' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) `
         -Path $path -AllowUnprotected -WarningAction SilentlyContinue -ErrorAction Stop } | Should -Throw
@@ -245,7 +241,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   It 'keeps the existing secret when the swap itself fails' {
     # Regression: Move-Item -Force replaces by DELETING the destination and then moving, so a
     # failure in between left neither copy on disk. The swap must leave the old secret intact.
-    $path = Join-Path $TestDrive 'swapfail'
+    $path = New-TestStore 'swapfail'
     Save-PrtgSecret -Name 'Keep' -Secret (ConvertTo-SecureString 'original' -AsPlainText -Force) `
       -Path $path -AllowUnprotected -WarningAction SilentlyContinue
     Mock -CommandName Move-PrtgFileAtomic -ModuleName PrtgSensorKit -MockWith { throw 'simulated swap failure' }
@@ -258,7 +254,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   It 'keeps the existing secret when a rotation fails part-way' {
     # Regression: Export-Clixml truncates before it writes, so writing straight to the target
     # destroyed the old value when the write then threw.
-    $path = Join-Path $TestDrive 'rotate'
+    $path = New-TestStore 'rotate'
     Save-PrtgSecret -Name 'Rot' -Secret (ConvertTo-SecureString 'original' -AsPlainText -Force) `
       -Path $path -AllowUnprotected -WarningAction SilentlyContinue
     Mock -CommandName Export-Clixml -ModuleName PrtgSensorKit -MockWith { throw 'simulated write failure' }
@@ -268,7 +264,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   }
 
   It 'leaves no temp files behind on a successful save' {
-    $path = Join-Path $TestDrive 'notemp'
+    $path = New-TestStore 'notemp'
     Save-PrtgSecret -Name 'Clean' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) `
       -Path $path -AllowUnprotected -WarningAction SilentlyContinue
     @(Get-ChildItem -LiteralPath $path -Filter '*.tmp') | Should -BeNullOrEmpty
@@ -280,8 +276,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
     # in the module prunes it, so the next save of the same name has to.
     # These names are the LEGACY generation, '<Name>.<guid>.tmp', written before this cmdlet
     # shared the atomic writer. They hold real encrypted payload, so they must still be swept.
-    $path = Join-Path $TestDrive 'stale'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'stale'
     $stale = Join-Path $path 'Stale.deadbeef.tmp'
     $other = Join-Path $path 'Other.deadbeef.tmp'
     # Same name, longer extension: a Windows provider filter of '*.tmp' can match this one via
@@ -305,8 +300,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
     # The secret store has no lock, so a second sensor instance can be part-way through its own
     # save of the same name. Deleting its temp file would break that save - and on Windows make
     # Export-Clixml recreate the file WITHOUT the ACL that save had already applied.
-    $path = Join-Path $TestDrive 'concurrent'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'concurrent'
     $inFlight = Join-Path $path 'Busy.abc123.tmp'
     Set-Content -LiteralPath $inFlight -Value 'another instance is writing this'
     Save-PrtgSecret -Name 'Busy' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) `
@@ -320,7 +314,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
     # not tell the operator which secret failed or which account it is running as.
     # A destination has to exist before there is anything to collide with, so this saves once
     # first and fails the swap on the re-save.
-    $path = Join-Path $TestDrive 'locked'
+    $path = New-TestStore 'locked'
     Save-PrtgSecret -Name 'Owned' -Secret (ConvertTo-SecureString 'original' -AsPlainText -Force) `
       -Path $path -AllowUnprotected -WarningAction SilentlyContinue
     Mock -CommandName Move-PrtgFileAtomic -ModuleName PrtgSensorKit -MockWith {
@@ -337,8 +331,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
     # A full disk while writing the temp file is not a name collision. Reporting one would tell
     # the operator to delete a secret as an administrator - and on a first save there is no
     # destination to delete, while on a re-save the one they would delete is healthy.
-    $path = Join-Path $TestDrive 'nocollision'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'nocollision'
     Mock -CommandName Export-Clixml -ModuleName PrtgSensorKit -MockWith {
       throw [System.IO.IOException]::new('There is not enough space on the disk.')
     }
@@ -354,8 +347,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   It 'reports a corrupt (malformed XML) secret as corruption, not an account mismatch' {
     # Unclosed XML makes Import-Clixml throw XmlException; blaming DPAPI would send the operator
     # to chase permissions for a problem no re-permissioning can fix.
-    $path = Join-Path $TestDrive 'corrupt'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'corrupt'
     Set-Content -LiteralPath (Join-Path $path 'Bad.clixml') -Value '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04">'
     $err = { Get-PrtgSecret -Name 'Bad' -Path $path -AllowUnprotected -ErrorAction Stop } |
       Should -Throw -ExpectedMessage '*not well-formed XML*' -PassThru
@@ -366,8 +358,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
     # Well-formed XML whose SecureString payload is unreadable throws FormatException, NOT
     # XmlException, so it must fall through to the DPAPI wording. Asserting the message matters:
     # an unknown ELEMENT would also be an XmlException and would silently test the wrong branch.
-    $path = Join-Path $TestDrive 'notsecret'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'notsecret'
     Set-Content -LiteralPath (Join-Path $path 'Odd.clixml') -Value '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><SS>NOT-HEX-ZZZZ</SS></Objs>'
     { Get-PrtgSecret -Name 'Odd' -Path $path -AllowUnprotected -ErrorAction Stop } |
       Should -Throw -ExpectedMessage '*same Windows account and machine*'
@@ -378,8 +369,7 @@ Describe 'Save-PrtgSecret through the shared atomic writer' {
   It 'sweeps a stale temp file from the current naming generation' {
     # The shared writer derives the temp name from the full leaf, so this secret's temps are now
     # '<Name>.clixml.<guid>.tmp'. The legacy generation is covered by the sweep test above.
-    $path = Join-Path $TestDrive 'stalecurrent'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'stalecurrent'
     $stale = Join-Path $path 'Current.clixml.deadbeef.tmp'
     $other = Join-Path $path 'Other.clixml.deadbeef.tmp'
     Set-Content -LiteralPath $stale -Value 'leftover'
@@ -398,8 +388,7 @@ Describe 'Save-PrtgSecret through the shared atomic writer' {
   It 'reads back a SecureString written at the previous serialization depth' {
     # Before this cmdlet shared the writer it exported at Export-Clixml's implicit depth of 2
     # rather than the writer's 5. Secrets already on disk must keep reading back.
-    $path = Join-Path $TestDrive 'depthsecure'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'depthsecure'
     (ConvertTo-SecureString 'legacy-token' -AsPlainText -Force) |
       Export-Clixml -LiteralPath (Join-Path $path 'OldSecure.clixml')
 
@@ -408,8 +397,7 @@ Describe 'Save-PrtgSecret through the shared atomic writer' {
   }
 
   It 'reads back a PSCredential written at the previous serialization depth' {
-    $path = Join-Path $TestDrive 'depthcred'
-    New-Item -ItemType Directory -Path $path -Force | Out-Null
+    $path = New-TestStore 'depthcred'
     $cred = [System.Management.Automation.PSCredential]::new(
       'olduser', (ConvertTo-SecureString 'legacy-pass' -AsPlainText -Force))
     $cred | Export-Clixml -LiteralPath (Join-Path $path 'OldCred.clixml')
@@ -424,7 +412,7 @@ Describe 'Save-PrtgSecret through the shared atomic writer' {
     # now happens inside the shared writer, whose own cleanup catch runs first, so this arm sees
     # a REAL [System.IO.File]::Replace failure only after a rethrow - and Windows PowerShell 5.1
     # is documented to misdispatch a multi-type catch. Nothing is mocked here on purpose.
-    $path = Join-Path $TestDrive 'heldopen'
+    $path = New-TestStore 'heldopen'
     Save-PrtgSecret -Name 'Held' -Secret (ConvertTo-SecureString 'original' -AsPlainText -Force) `
       -Path $path -WarningAction SilentlyContinue
     $dest = Join-Path $path 'Held.clixml'
@@ -452,7 +440,7 @@ Describe 'Save-PrtgSecret through the shared atomic writer' {
 
 Describe 'Secret store folder resolution through the public cmdlets' {
   It 'reading a missing secret does not create the store folder' {
-    $path = Join-Path $TestDrive "neverread-$(Get-Random)"
+    $path = New-TestStore 'neverread' -NoCreate
     { Get-PrtgSecret -Name 'Nope' -Path $path -AllowUnprotected -ErrorAction Stop } |
       Should -Throw -ExpectedMessage "*not found*"
     Test-Path -LiteralPath $path | Should -BeFalse

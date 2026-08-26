@@ -346,9 +346,10 @@ Describe 'PSK0013 DPAPI secrets are bound to the sensor account' {
 }
 
 Describe 'Check registration' {
-  It 'runs every check function the module defines, and defines every one it runs' {
+  It 'runs, defines and documents the same set of checks' {
     # A check with its own tests but no call in the runner would otherwise pass its own
-    # suite while never running against a real script.
+    # suite while never running against a real script. A check missing from the cmdlet's
+    # help, or listed there and never run, would otherwise ship as a wrong index.
     InModuleScope PrtgSensorKit {
       $nameForm = '^Test-PrtgDoctorPSK\d{4}$'
 
@@ -363,8 +364,23 @@ Describe 'Check registration' {
         ForEach-Object { $_.GetCommandName() } |
         Where-Object { $_ -match $nameForm } | Sort-Object)
 
+      # The four environment identifiers have no per-check function; named here so the
+      # documented list stays fully pinned rather than filtered.
+      $expected = @($defined | ForEach-Object { $_ -replace '^Test-PrtgDoctor', '' }) +
+        @('PSK0101', 'PSK0102', 'PSK0103', 'PSK0104') | Sort-Object
+
+      # From the parsed help rather than from a run, matching how the rest of this file's
+      # pins read declarations instead of observed behaviour.
+      $helpText = ((Get-Help Invoke-PrtgSensorDoctor).Description | ForEach-Object { $_.Text }) -join "`n"
+      $documented = @([regex]::Matches($helpText, 'PSK\d{4}') |
+        ForEach-Object { $_.Value } | Sort-Object -Unique)
+
       $defined.Count | Should -Be 13
       $registered | Should -Be $defined
+
+      # Set equality only. Registry order stays unpinned: the byte-reading check's second
+      # position is deliberate, but a reorder is cosmetic where a missing check is not.
+      $documented | Should -Be $expected
     }
   }
 }

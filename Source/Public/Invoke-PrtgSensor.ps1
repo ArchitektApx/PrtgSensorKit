@@ -208,37 +208,15 @@ function Invoke-PrtgSensor {
 
   if ($ForceModernTls) { Set-PrtgModernTls }
 
-  # -EnableLogging: point the session log directory and retention at this call's settings
-  # for its duration (restored in the finally below). The run file itself is created
-  # lazily by the first Write-PrtgLog call - the lifecycle start line right below.
+  # -LogPath and -MaxLogs are forwarded bound-or-not: an omitted one must leave the session
+  # value alone rather than overwrite it with a default.
   $logRestore = $null
   if ($EnableLogging) {
-    $logRestore = @{
-      Directory   = $script:PrtgLogDirectory
-      MaxLogs     = $script:PrtgLogMaxLogs
-      File        = $script:PrtgLogFile
-      RestoreFile = $false
+    $scope = @{}
+    foreach ($parameterName in 'LogPath', 'MaxLogs') {
+      if ($PSBoundParameters.ContainsKey($parameterName)) { $scope[$parameterName] = $PSBoundParameters[$parameterName] }
     }
-    if ($PSBoundParameters.ContainsKey('LogPath')) {
-      if (-not [System.IO.Path]::IsPathRooted($LogPath)) {
-        # Relative paths anchor to the sensor script, not the CWD: PRTG starts sensors
-        # with an unhelpful working directory.
-        $callerScript = Get-PrtgLogCallerScriptPath
-        $baseDirectory = if ($callerScript) { Split-Path -Parent $callerScript } else { (Get-Location).Path }
-        $LogPath = Join-Path $baseDirectory $LogPath
-      }
-      $script:PrtgLogDirectory = $LogPath
-      # An earlier Write-PrtgLog call may have pinned this process's run file to another
-      # folder; honor the explicit -LogPath by starting a new run file there.
-      # Only this branch discards the run file, so only this branch may restore it. Restoring
-      # unconditionally would null the run file the call itself created, and the script's next
-      # Write-PrtgLog would start a SECOND file instead of appending to it.
-      if ($script:PrtgLogFile -and (Split-Path -Parent $script:PrtgLogFile) -ne $LogPath) {
-        $script:PrtgLogFile = $null
-        $logRestore.RestoreFile = $true
-      }
-    }
-    if ($PSBoundParameters.ContainsKey('MaxLogs')) { $script:PrtgLogMaxLogs = $MaxLogs }
+    $logRestore = Push-PrtgLogScope @scope
   }
 
   try {
@@ -332,10 +310,6 @@ function Invoke-PrtgSensor {
 
     Write-PrtgOutput
   } finally {
-    if ($null -ne $logRestore) {
-      $script:PrtgLogDirectory = $logRestore.Directory
-      $script:PrtgLogMaxLogs = $logRestore.MaxLogs
-      if ($logRestore.RestoreFile) { $script:PrtgLogFile = $logRestore.File }
-    }
+    Pop-PrtgLogScope $logRestore
   }
 }

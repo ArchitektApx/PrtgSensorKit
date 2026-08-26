@@ -37,6 +37,93 @@ function Get-PrtgLogScriptName {
   return 'console'
 }
 
+function Push-PrtgLogScope {
+  <#
+    .SYNOPSIS
+      Points the session log directory and retention at one call's settings, and returns the
+      token that puts them back.
+    .DESCRIPTION
+      The caller decides whether logging is on at all; this is only ever reached when it is.
+
+      -LogPath and -MaxLogs are read as bound-or-not rather than by value, because an omitted
+      -LogPath must leave the session directory alone while an explicit one that happens to
+      match it must still be honored.
+
+      A relative -LogPath anchors to the sensor script rather than to the working directory:
+      PRTG starts sensors with an unhelpful one.
+  #>
+  [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+    Justification = 'Logging-internal scope switch, undone by Pop-PrtgLogScope; the public cmdlet contract is fire-and-forget.')]
+  [CmdletBinding()]
+  [OutputType([hashtable])]
+  param(
+    [Parameter(Mandatory = $false)]
+    [ValidateNotNullOrEmpty()]
+    [string]$LogPath,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateRange(0, [int]::MaxValue)]
+    [int]$MaxLogs
+  )
+
+  $token = @{
+    Directory   = $script:PrtgLogDirectory
+    MaxLogs     = $script:PrtgLogMaxLogs
+    File        = $script:PrtgLogFile
+    RestoreFile = $false
+  }
+
+  if ($PSBoundParameters.ContainsKey('LogPath')) {
+    $resolved = $LogPath
+    if (-not [System.IO.Path]::IsPathRooted($resolved)) {
+      $callerScript = Get-PrtgLogCallerScriptPath
+      $baseDirectory = if ($callerScript) { Split-Path -Parent $callerScript } else { (Get-Location).Path }
+      $resolved = Join-Path $baseDirectory $resolved
+    }
+    $script:PrtgLogDirectory = $resolved
+
+    # An earlier Write-PrtgLog call may have pinned this process's run file to another folder;
+    # honor the explicit -LogPath by starting a new run file there.
+    if ($script:PrtgLogFile -and (Split-Path -Parent $script:PrtgLogFile) -ne $resolved) {
+      $script:PrtgLogFile = $null
+      $token.RestoreFile = $true
+    }
+  }
+
+  if ($PSBoundParameters.ContainsKey('MaxLogs')) { $script:PrtgLogMaxLogs = $MaxLogs }
+
+  $token
+}
+
+function Pop-PrtgLogScope {
+  <#
+    .SYNOPSIS
+      Restores what Push-PrtgLogScope saved.
+    .DESCRIPTION
+      A null token is a no-op, so the caller's restore is one unconditional line and cannot
+      grow a second guard that disagrees with the push's.
+
+      The run file restore is deliberately asymmetric with the directory and retention
+      restores, and must stay that way. Only the push branch that DISCARDED the run file sets
+      RestoreFile. Restoring unconditionally would null the run file this call itself created,
+      and the script's next Write-PrtgLog would start a SECOND file instead of appending.
+  #>
+  [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
+    Justification = 'Logging-internal scope restore paired with Push-PrtgLogScope; the public cmdlet contract is fire-and-forget.')]
+  [CmdletBinding()]
+  param(
+    [Parameter(Mandatory = $false, Position = 0)]
+    [AllowNull()]
+    [hashtable]$Token
+  )
+
+  if ($null -eq $Token) { return }
+
+  $script:PrtgLogDirectory = $Token.Directory
+  $script:PrtgLogMaxLogs = $Token.MaxLogs
+  if ($Token.RestoreFile) { $script:PrtgLogFile = $Token.File }
+}
+
 function New-PrtgLogFile {
   # Creates this invocation's run log file (writing the first entry) and prunes old run
   # files beyond the retention count. Callers handle exceptions; Write-PrtgLog wraps

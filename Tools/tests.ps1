@@ -17,14 +17,11 @@ param(
 . (Join-Path $PSScriptRoot 'pester_pin.ps1')
 Import-PinnedPester
 
-# Join-Path's 3-argument form is PowerShell 7+ only; nest for Windows PowerShell 5.1.
-$testPath = Join-Path (Join-Path $PSScriptRoot '..') 'Tests' | Resolve-Path -ErrorAction SilentlyContinue
-if (-not $testPath -or -not (Get-ChildItem -Path $testPath -Filter '*.Tests.ps1' -Recurse -ErrorAction SilentlyContinue)) {
-  throw "No *.Tests.ps1 files found under Tests/. Refusing to report success on an empty run."
-}
+. (Join-Path $PSScriptRoot 'test_suite_path.ps1')
+$testPath = Resolve-TestSuitePath
 
 $config = New-PesterConfiguration
-$config.Run.Path = $testPath.Path
+$config.Run.Path = $testPath
 $config.Run.PassThru = $true
 $config.Output.Verbosity = 'Detailed'
 $result = Invoke-Pester -Configuration $config

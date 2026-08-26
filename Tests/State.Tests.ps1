@@ -14,7 +14,7 @@ $onWindows = Test-OnWindowsHost
 $noUtcOffset = ([TimeZoneInfo]::Local.GetUtcOffset([DateTime]::UtcNow) -eq [TimeSpan]::Zero)
 
 Describe 'Save/Get-PrtgSensorState round-trip' {
-  BeforeEach { $dir = Join-Path $TestDrive "state-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'state' }
 
   It 'round-trips a simple value with a UTC timestamp' {
     Save-PrtgSensorState -Key 'k' -Value 42 -Path $dir
@@ -57,7 +57,6 @@ Describe 'Save/Get-PrtgSensorState round-trip' {
 
   It 'filters entries older than -MaxAge (and falls back to -Default when all are too old)' {
     # Hand-written state file in the module's format, with one stale and one fresh entry.
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
     @(
       [PSCustomObject]@{ Value = 'stale'; Timestamp = [DateTime]::UtcNow.AddHours(-2) }
       [PSCustomObject]@{ Value = 'fresh'; Timestamp = [DateTime]::UtcNow }
@@ -82,7 +81,6 @@ Describe 'Save/Get-PrtgSensorState round-trip' {
   }
 
   It 'warns and starts fresh on a corrupt state file (Save)' {
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $dir 'corrupt.clixml') -Value 'this is not clixml'
     Save-PrtgSensorState -Key 'corrupt' -Value 'recovered' -Path $dir -WarningVariable warns -WarningAction SilentlyContinue
     $warns | Should -Not -BeNullOrEmpty
@@ -90,7 +88,6 @@ Describe 'Save/Get-PrtgSensorState round-trip' {
   }
 
   It 'warns and returns -Default on a corrupt state file (Get)' {
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $dir 'corrupt.clixml') -Value 'this is not clixml'
     Get-PrtgSensorState -Key 'corrupt' -Path $dir -Default 'fallback' -WarningVariable warns -WarningAction SilentlyContinue |
       Should -Be 'fallback'
@@ -105,7 +102,7 @@ Describe 'Save/Get-PrtgSensorState round-trip' {
 }
 
 Describe 'Clear-PrtgSensorState' {
-  BeforeEach { $dir = Join-Path $TestDrive "clear-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'clear' }
 
   It 'deletes the state file without -MaxAge' {
     Save-PrtgSensorState -Key 'gone' -Value 1 -Path $dir
@@ -115,7 +112,6 @@ Describe 'Clear-PrtgSensorState' {
   }
 
   It 'prunes only entries older than -MaxAge' {
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
     @(
       [PSCustomObject]@{ Value = 'stale'; Timestamp = [DateTime]::UtcNow.AddHours(-2) }
       [PSCustomObject]@{ Value = 'fresh'; Timestamp = [DateTime]::UtcNow }
@@ -128,7 +124,6 @@ Describe 'Clear-PrtgSensorState' {
   }
 
   It 'deletes the file when -MaxAge prunes everything' {
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
     @([PSCustomObject]@{ Value = 'stale'; Timestamp = [DateTime]::UtcNow.AddHours(-2) }) |
       Export-Clixml -LiteralPath (Join-Path $dir 'allold.clixml')
     Clear-PrtgSensorState -Key 'allold' -Path $dir -MaxAge (New-TimeSpan -Hours 1)
@@ -170,7 +165,7 @@ Describe 'Clear-PrtgSensorState -ClearLock -Force' {
   # The failure test calls the cmdlet directly, with no sensor block and no ambient preference set:
   # Remove-Item reports a failed delete as a non-terminating error, so without the cmdlet's own
   # -ErrorAction Stop the warning depends on Invoke-PrtgSensor's global 'Stop' preference.
-  BeforeEach { $dir = Join-Path $TestDrive "clearforce-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'clearforce' }
 
   It 'removes the sidecar and says nothing when nothing holds the lock' {
     Save-PrtgSensorState -Key 'freelock' -Value 1 -Path $dir
@@ -222,7 +217,7 @@ Describe 'Clear-PrtgSensorState -ClearLock -Force' {
 
 Describe 'Sensor state locking' {
   BeforeEach {
-    $dir = Join-Path $TestDrive "lock-$(Get-Random)"
+    $dir = New-TestStore 'lock'
     Save-PrtgSensorState -Key 'shared' -Value 'seed' -Path $dir
     $lockFile = Join-Path $dir 'shared.clixml.lock'
   }
@@ -294,7 +289,6 @@ Describe 'Sensor state locking' {
   }
 
   It 'releases the lock even when the locked operation fails (finally path)' {
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
     Set-Content -LiteralPath (Join-Path $dir 'shared.clixml') -Value 'corrupt'
     # Corrupt file makes the read warn inside the locked section; afterwards the lock must be free.
     Get-PrtgSensorState -Key 'shared' -Path $dir -WarningAction SilentlyContinue | Out-Null
@@ -328,8 +322,7 @@ Describe 'Sensor state coverage gaps' {
   }
 
   It 'warns and deletes when Clear-PrtgSensorState -MaxAge meets a corrupt state file' {
-    $dir = Join-Path $TestDrive "state-$(Get-Random)"
-    [void] (New-Item -ItemType Directory -Path $dir)
+    $dir = New-TestStore 'state'
     $file = Join-Path $dir 'corrupt.clixml'
     Set-Content -LiteralPath $file -Value 'this is not clixml'
     Clear-PrtgSensorState -Key 'corrupt' -Path $dir -MaxAge (New-TimeSpan -Minutes 5) -WarningVariable warnings 3>$null
@@ -340,8 +333,7 @@ Describe 'Sensor state coverage gaps' {
   It 'fails fast with the access-denied wording when the lock folder is not writable (unix)' -Skip:$onWindows {
     # A read-only folder yields UnauthorizedAccessException on lock creation, which must NOT be
     # retried until the timeout (ACL denial is not transient).
-    $dir = Join-Path $TestDrive "readonly-$(Get-Random)"
-    [void] (New-Item -ItemType Directory -Path $dir)
+    $dir = New-TestStore 'readonly'
     chmod 555 $dir
     try {
       { Save-PrtgSensorState -Key 'denied' -Value 1 -Path $dir -TimeoutSeconds 30 } |
@@ -355,8 +347,7 @@ Describe 'Sensor state coverage gaps' {
     # Same contract as the unix case, via a Deny ACE. Only CreateFiles is denied: the owner keeps
     # ChangePermissions, so the finally can always remove the ACE again and TestDrive stays
     # deletable. Denying more (or denying Delete) can strand the folder.
-    $dir = Join-Path $TestDrive "denied-$(Get-Random)"
-    [void] (New-Item -ItemType Directory -Path $dir)
+    $dir = New-TestStore 'denied'
     $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
     $deny = [System.Security.AccessControl.FileSystemAccessRule]::new(
       $me, 'CreateFiles', 'ContainerInherit,ObjectInherit', 'None', 'Deny')
@@ -379,8 +370,7 @@ Describe 'Timestamp tie-breaking' {
   # timestamps. The crafted files below make the tie deterministic instead of relying on
   # a fast machine to reproduce the race (which is how CI caught it).
   BeforeEach {
-    $dir = Join-Path $TestDrive "tie-$(Get-Random)"
-    [void] (New-Item -ItemType Directory -Path $dir)
+    $dir = New-TestStore 'tie'
     $ts = [DateTime]::UtcNow
     @(
       [PSCustomObject]@{ Value = 'older'; Timestamp = $ts }
@@ -394,7 +384,7 @@ Describe 'Timestamp tie-breaking' {
 }
 
 Describe 'Get-PrtgSensorState -Latest null handling' {
-  BeforeEach { $dir = Join-Path $TestDrive "statenull-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'statenull' }
 
   It '-Latest falls back to -Default when the newest stored value is null' {
     Save-PrtgSensorState -Key 'k' -Value $null -Path $dir
@@ -431,7 +421,7 @@ Describe 'Get-PrtgSensorState -Latest null handling' {
 }
 
 Describe 'State writes are atomic' {
-  BeforeEach { $dir = Join-Path $TestDrive "atomic-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'atomic' }
 
   It 'keeps the whole history when a save fails part-way' {
     # Export-Clixml truncates before it writes, so writing straight to the state file would
@@ -458,11 +448,10 @@ Describe 'State writes are atomic' {
 }
 
 Describe 'Partially malformed state and cache files' {
-  BeforeEach { $dir = Join-Path $TestDrive "partial-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'partial' }
 
   It 'warns about malformed entries but still returns the valid ones' {
     # A READABLE file whose entry list is partly corrupt, as opposed to an unreadable file.
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
     @(
       [PSCustomObject]@{ Value = 'good'; Timestamp = [DateTime]::UtcNow }
       [PSCustomObject]@{ Value = 'no timestamp property' }
@@ -475,7 +464,6 @@ Describe 'Partially malformed state and cache files' {
   }
 
   It 'warns about malformed entries when saving' {
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
     @(
       [PSCustomObject]@{ Value = 'good'; Timestamp = [DateTime]::UtcNow }
       [PSCustomObject]@{ Value = 'no timestamp property' }
@@ -488,7 +476,6 @@ Describe 'Partially malformed state and cache files' {
   }
 
   It 'warns about malformed entries when pruning with -MaxAge' {
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
     @(
       [PSCustomObject]@{ Value = 'fresh'; Timestamp = [DateTime]::UtcNow }
       [PSCustomObject]@{ Value = 'no timestamp property' }
@@ -501,7 +488,6 @@ Describe 'Partially malformed state and cache files' {
   }
 
   It 'warns about malformed cache entries but still serves a fresh one' {
-    New-Item -ItemType Directory -Path $dir -Force | Out-Null
     @(
       [PSCustomObject]@{ Value = 'cached'; Timestamp = [DateTime]::UtcNow }
       [PSCustomObject]@{ Value = 'no timestamp property' }
@@ -622,8 +608,7 @@ Describe 'A caller script block sees its OWN variables inside the state lock' {
     # Invoke-PrtgStateLock, both in the dynamic chain '& $block' resolves through. The prefix
     # assertions in Private.Tests.ps1 check that neither frame declares a colliding NAME;
     # this checks that the prefixes actually protect the values, through both frames at once.
-    $dir = Join-Path $TestDrive "twoframe-$(Get-Random)"
-    [void] (New-Item -ItemType Directory -Path $dir -Force)
+    $dir = New-TestStore 'twoframe'
 
     $seen = InModuleScope PrtgSensorKit -Parameters @{ StorePath = $dir } {
       param($StorePath)
@@ -670,7 +655,7 @@ Describe 'A caller script block sees its OWN variables inside the state lock' {
   }
 
   It 'still honours a non-default -TimeoutSeconds and -Force on the public cmdlets' {
-    $dir = Join-Path $TestDrive "state-lockargs-$(Get-Random)"
+    $dir = New-TestStore 'state-lockargs'
     Save-PrtgSensorState -Key 'k' -Value 1 -Path $dir -TimeoutSeconds 3
     Get-PrtgSensorState -Key 'k' -Path $dir -TimeoutSeconds 3 -Latest | Should -Be 1
     Save-PrtgSensorState -Key 'k' -Value 2 -Path $dir -Force
@@ -687,11 +672,10 @@ Describe 'Corruption warnings the operator relies on' {
   # their data next, the noun is the framing each cmdlet uses for the file, and the cmdlet name is
   # how the responsible sensor is found when several run at once. All three are operator-facing
   # contract, so they are pinned here per cmdlet rather than tested as one generic "warns" case.
-  BeforeEach { $dir = Join-Path $TestDrive "warn-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'warn' }
 
   Context 'an unreadable file' {
     It 'Save-PrtgSensorState says the state file will be replaced' {
-      [void] (New-Item -ItemType Directory -Path $dir -Force)
       Set-Content -LiteralPath (Join-Path $dir 'badsave.clixml') -Value 'this is not clixml'
 
       Save-PrtgSensorState -Key 'badsave' -Value 'recovered' -Path $dir -WarningVariable warnings 3>$null
@@ -701,7 +685,6 @@ Describe 'Corruption warnings the operator relies on' {
     }
 
     It 'Get-PrtgSensorState says the state file is treated as empty' {
-      [void] (New-Item -ItemType Directory -Path $dir -Force)
       Set-Content -LiteralPath (Join-Path $dir 'badget.clixml') -Value 'this is not clixml'
 
       Get-PrtgSensorState -Key 'badget' -Path $dir -WarningVariable warnings 3>$null | Out-Null
@@ -711,7 +694,6 @@ Describe 'Corruption warnings the operator relies on' {
     }
 
     It 'Clear-PrtgSensorState says the state file will be deleted, and deletes it' {
-      [void] (New-Item -ItemType Directory -Path $dir -Force)
       $file = Join-Path $dir 'badclear.clixml'
       Set-Content -LiteralPath $file -Value 'this is not clixml'
 
@@ -725,7 +707,6 @@ Describe 'Corruption warnings the operator relies on' {
     }
 
     It 'Use-PrtgCachedResult says the cache file is refetched' {
-      [void] (New-Item -ItemType Directory -Path $dir -Force)
       Set-Content -LiteralPath (Join-Path $dir 'badcache.clixml') -Value 'this is not clixml'
 
       $value = Use-PrtgCachedResult -Key 'badcache' -MaxAge (New-TimeSpan -Minutes 5) -Path $dir `
@@ -823,7 +804,7 @@ Describe 'Get-PrtgSensorState names one newest entry on both paths' {
     }
   }
 
-  BeforeEach { $dir = Join-Path $TestDrive "order-$(Get-Random)" }
+  BeforeEach { $dir = New-TestStore 'order' }
 
   It 'agrees with -Latest on a history holding both a UTC-marked and a local-marked timestamp' -Skip:$noUtcOffset {
     $expected = New-MixedKindHistory -Folder $dir -Key 'mixed'
@@ -849,7 +830,6 @@ Describe 'Get-PrtgSensorState names one newest entry on both paths' {
   It 'names the last-appended entry as newest when timestamps are identical' {
     # Two saves inside one clock tick are enough to produce this on an ordinary probe; five
     # entries because Sort-Object can happen to leave a shorter list in its input order.
-    [void] (New-Item -ItemType Directory -Path $dir -Force)
     $tick = [DateTime]::UtcNow
     @(1..5 | ForEach-Object { [PSCustomObject]@{ Value = "e$_"; Timestamp = $tick } }) |
       Export-Clixml -LiteralPath (Join-Path $dir 'tie.clixml') -Depth 5
@@ -865,8 +845,7 @@ Describe 'Corruption warnings cross the state lock frame' {
   # 'Corruption warnings the operator relies on' cover the collecting half via -WarningVariable;
   # this covers the silencing half, for all four cmdlets at once.
   BeforeEach {
-    $dir = Join-Path $TestDrive "suppress-$(Get-Random)"
-    [void] (New-Item -ItemType Directory -Path $dir -Force)
+    $dir = New-TestStore 'suppress'
     foreach ($key in 'supsave', 'supget', 'supclear', 'supcache') {
       Set-Content -LiteralPath (Join-Path $dir "$key.clixml") -Value 'this is not clixml'
     }
