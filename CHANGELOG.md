@@ -38,6 +38,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   documented identifiers as three sets, so a check cannot ship undocumented or documented but
   removed. Order stays unpinned.
 
+- **ADR 0006 records why the Doctor's parse context carries a token stream nothing reads.**
+  It stays so a future check needing raw tokens costs no second pass. No source changed.
+
 ## [1.4.2] - 2026-08-25
 
 ### Changed
