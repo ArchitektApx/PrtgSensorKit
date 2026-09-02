@@ -36,7 +36,27 @@ PowerShellVersion = '5.1.0'
 RequiredModules = @()
 
 # Functions to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no functions to export.
-FunctionsToExport = @()
+FunctionsToExport = @(
+    'Add-PrtgChannel',
+    'Clear-PrtgOutput',
+    'Clear-PrtgSensorState',
+    'Get-PrtgMessage',
+    'Get-PrtgSecret',
+    'Get-PrtgSensorState',
+    'Invoke-PrtgSensor',
+    'Invoke-PrtgSensorDoctor',
+    'New-PrtgChannel',
+    'Restart-As64BitPowershell',
+    'Restart-InPwsh',
+    'Save-PrtgSecret',
+    'Save-PrtgSensorState',
+    'Set-PrtgMessage',
+    'Set-PrtgOutput',
+    'Use-PrtgCachedResult',
+    'Write-PrtgError',
+    'Write-PrtgLog',
+    'Write-PrtgOutput'
+)
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = @()
