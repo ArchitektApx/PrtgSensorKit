@@ -49,10 +49,10 @@ Describe 'Every function in the source tree reaches the built module' {
       [string[]]$names
     }
 
-    # The source loader itself is excluded: it is not copied into the built root module, so a
-    # function defined there would read as missing by design.
+    # '*.ps1' leaves the source loader out, which is wanted: it is not copied into the built
+    # root module, so a function defined there would read as missing by design.
     $script:SourceFiles = @(Get-ChildItem -Path $script:Info.SourceRoot -Recurse -Filter '*.ps1' -File |
-        Where-Object { $_.Name -ne "$($script:Info.ModuleName).psm1" } | ForEach-Object { $_.FullName })
+        ForEach-Object { $_.FullName })
     $script:InSource = @(Get-DefinedFunction -Path $script:SourceFiles)
     $script:InBuild = @(Get-DefinedFunction -Path @(Join-Path (Split-Path -Parent (Get-BuiltManifestPath)) "$($script:Info.ModuleName).psm1"))
   }
