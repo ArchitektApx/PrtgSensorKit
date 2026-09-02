@@ -141,7 +141,7 @@ BeforeDiscovery {
     'Restart-InPwsh'            = @{ Mandatory = @(); Pipeline = @(); Positional = @(); Sets = @('__AllParameterSets') }
     'Save-PrtgSecret'           = @{ Mandatory = @('Name', 'Secret', 'Credential'); Pipeline = @(); Positional = @(); Sets = @('SecureString', 'Credential') }
     'Save-PrtgSensorState'      = @{ Mandatory = @('Key', 'Value'); Pipeline = @(); Positional = @('Key', 'Value', 'Path', 'Depth', 'MaxEntries', 'TimeoutSeconds'); Sets = @('__AllParameterSets') }
-    'Set-PrtgMessage'           = @{ Mandatory = @(); Pipeline = @(); Positional = @('Text'); Sets = @('__AllParameterSets') }
+    'Set-PrtgMessage'           = @{ Mandatory = @(); Pipeline = @('Text'); Positional = @('Text'); Sets = @('__AllParameterSets') }
     'Set-PrtgOutput'            = @{ Mandatory = @(); Pipeline = @(); Positional = @('Object'); Sets = @('__AllParameterSets') }
     'Use-PrtgCachedResult'      = @{ Mandatory = @('Key', 'MaxAge', 'ScriptBlock'); Pipeline = @(); Positional = @('ScriptBlock'); Sets = @('__AllParameterSets') }
     'Write-PrtgError'           = @{ Mandatory = @('ErrorObject', 'ErrorString'); Pipeline = @('ErrorObject', 'ErrorString'); Positional = @(); Sets = @('ErrorObject', 'ErrorString') }

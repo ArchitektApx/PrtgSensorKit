@@ -106,6 +106,12 @@ Describe 'Redaction reaches the sensor output' {
     Get-PrtgMessage | Should -Be 'auth failed for Sup3rS*****'
   }
 
+  It 'masks a registered secret in a piped sensor message' {
+    InModuleScope PrtgSensorKit { Add-PrtgRedaction 'Sup3rSecret!Pa55' }
+    'auth failed for Sup3rSecret!Pa55' | Set-PrtgMessage
+    Get-PrtgMessage | Should -Be 'auth failed for Sup3rS*****'
+  }
+
   It 'masks a registered secret in the error text' {
     InModuleScope PrtgSensorKit { Add-PrtgRedaction 'Sup3rSecret!Pa55' }
     $json = Write-PrtgError -ErrorString 'https://api/?pw=Sup3rSecret!Pa55 returned 401' | ConvertFrom-Json

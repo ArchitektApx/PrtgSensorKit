@@ -25,6 +25,44 @@ Describe 'Sensor message' {
     Set-PrtgMessage ''
     Get-PrtgMessage | Should -BeExactly ''
   }
+
+  It 'accepts the message by name' {
+    Set-PrtgMessage -Text 'direct'
+    Get-PrtgMessage | Should -Be 'direct'
+  }
+
+  It 'sets an empty message when called with no argument' {
+    Set-PrtgMessage 'earlier'
+    Set-PrtgMessage
+    Get-PrtgMessage | Should -BeExactly ''
+  }
+
+  It 'accepts one string from the pipeline' {
+    'hello' | Set-PrtgMessage
+    Get-PrtgMessage | Should -Be 'hello'
+  }
+
+  It 'keeps the last of several piped strings' {
+    'a', 'b' | Set-PrtgMessage
+    Get-PrtgMessage | Should -Be 'b'
+  }
+
+  It 'leaves the message untouched on an empty pipeline' {
+    Set-PrtgMessage 'kept'
+    @() | Set-PrtgMessage
+    Get-PrtgMessage | Should -Be 'kept'
+  }
+
+  It 'sets an empty message from a piped null item' {
+    Set-PrtgMessage 'earlier'
+    $null | Set-PrtgMessage
+    Get-PrtgMessage | Should -BeExactly ''
+  }
+
+  It 'binds a piped object as its string form, not by property name' {
+    [pscustomobject]@{ Text = 'x'; n = 1 } | Set-PrtgMessage
+    Get-PrtgMessage | Should -Be '@{Text=x; n=1}'
+  }
 }
 
 Describe 'Write-PrtgOutput' {
@@ -94,6 +132,12 @@ Describe 'A null output document' {
     Set-PrtgOutput $null
     { Set-PrtgMessage 'x' } | Should -Throw '*Set-PrtgMessage*output document is null*'
     { Set-PrtgMessage 'x' } | Should -Throw '*Clear-PrtgOutput*'
+  }
+
+  It 'makes Set-PrtgMessage name the cause and itself on piped input' {
+    Set-PrtgOutput $null
+    { 'x' | Set-PrtgMessage } | Should -Throw '*Set-PrtgMessage*output document is null*'
+    { 'x' | Set-PrtgMessage } | Should -Throw '*Clear-PrtgOutput*'
   }
 
   It 'fails no earlier than it did before' {

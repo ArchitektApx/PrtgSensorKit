@@ -5,6 +5,16 @@ All notable changes to PrtgSensorKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **`Set-PrtgMessage` accepts the message from the pipeline.** `Get-Status | Set-PrtgMessage`
+  used to fail with a binding error, while `Add-PrtgChannel` and `Write-PrtgError` already took
+  pipeline input. Each piped item overwrites the message, so the last one wins, and a piped
+  object binds as its string form, so pipe the property you mean. Masking, the `#` strip and
+  the truncation apply as for a direct call; the positional and `-Text` calls are unchanged.
+
 ## [1.4.3] - 2026-08-26
 
 ### Changed
