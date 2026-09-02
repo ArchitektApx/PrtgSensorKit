@@ -186,7 +186,7 @@ BeforeDiscovery {
 }
 
 BeforeAll {
-  . $PSScriptRoot/_TestHelpers.ps1
+  . $PSScriptRoot/../_TestHelpers.ps1
   Import-BuiltModule
 
   # PowerShell adds these to every advanced function; they are not part of this module's surface.
