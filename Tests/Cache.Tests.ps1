@@ -1,6 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 
   $script:FiveMinutes = New-TimeSpan -Minutes 5
 }
@@ -109,7 +109,7 @@ Describe 'Use-PrtgCachedResult locking' {
   }
 
   It 'holds the lock across the fetch so a concurrent caller hits the fresh entry (herd test)' {
-    $manifest = Get-BuiltPrtgManifest
+    $manifest = Get-ModuleUnderTestPath
     $marker = Join-Path $dir 'fetches.txt'
     $ps = [PowerShell]::Create()
     [void] $ps.AddScript(@"

@@ -27,7 +27,7 @@ $ErrorActionPreference = 'Stop'
 Write-Host "Fuzz seed: $Seed (rerun with -Seed $Seed to repeat the same value/number sequence)"
 
 . (Join-Path (Join-Path $PSScriptRoot '..') (Join-Path 'Tests' '_TestHelpers.ps1'))
-Import-BuiltPrtgModule
+Import-BuiltModule
 
 $failureDir = Join-Path $PSScriptRoot 'fuzz-failures'
 # Stale repro files from a previous run would otherwise mix with this run's (same iteration

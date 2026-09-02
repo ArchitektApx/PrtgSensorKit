@@ -9,7 +9,7 @@
 
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 
   # The check functions are private, so they are reached the same way Doctor.Tests.ps1
   # reaches the environment checks.

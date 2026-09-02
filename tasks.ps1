@@ -1,12 +1,24 @@
 param(
+  # Positions are explicit on purpose: as soon as ONE parameter declares a Position, the others
+  # stop binding positionally, and './tasks.ps1 test' would silently run the default task.
+  [Parameter(Position = 0)]
   [ValidateSet('build', 'test', 'lint', 'fuzz', 'coverage', 'install_dev_requirements', 'prepare_release')]
   [string]$Task = 'build',
 
   # Only used by prepare_release: ./tasks.ps1 prepare_release 1.1.0
+  [Parameter(Position = 1)]
   [string]$Version,
 
   # Only used by coverage: fail the run when coverage drops below this percentage.
-  [double]$MinimumPercent = 0
+  [double]$MinimumPercent = 0,
+
+  # Only used by test: which tree the behaviour tests import. The artifact tests always read
+  # the build.
+  [ValidateSet('Source', 'Dist')]
+  [string]$Target = 'Source',
+
+  # Only used by test: a single test file or folder instead of the whole test folder.
+  [string]$Path
 )
 
 switch ($Task) {
@@ -15,7 +27,11 @@ switch ($Task) {
     break
   }
   'test' {
-    . $(Join-Path "Tools" "tests.ps1")
+    # Splatted so an unset -Path falls through to the whole test folder rather than an empty
+    # string.
+    $testArgs = @{ Target = $Target }
+    if ($Path) { $testArgs.Path = $Path }
+    . $(Join-Path "Tools" "tests.ps1") @testArgs
     break
   }
   'lint' {

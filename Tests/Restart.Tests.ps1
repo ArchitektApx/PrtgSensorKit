@@ -1,6 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 }
 
 # -Skip resolves at DISCOVERY time, before any BeforeAll, so the helpers are dot-sourced here too.
@@ -25,7 +25,7 @@ Describe 'Restart-* no-op safety' {
 Describe 'Restart-* relaunch (Windows)' -Tag 'Windows' -Skip:(-not $onWindows) {
   BeforeAll {
     . $PSScriptRoot/_TestHelpers.ps1
-    $manifest = Get-BuiltPrtgManifest
+    $manifest = Get-ModuleUnderTestPath
     $script:probe = Join-Path ([System.IO.Path]::GetTempPath()) ("prtg_probe_{0}.ps1" -f ([guid]::NewGuid().ToString('N')))
     # The probe echoes the relaunched process' facts: bitness/edition, the -Payload it received,
     # and its full command line (to prove args survived and injected flags were not duplicated).

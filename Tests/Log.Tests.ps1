@@ -1,6 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 
   # One log file per PROCESS is the production contract; tests share a process, so the
   # cached run file and session settings are reset before every test.

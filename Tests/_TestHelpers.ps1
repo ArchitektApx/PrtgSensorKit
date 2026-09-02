@@ -1,18 +1,64 @@
-# Shared by every *.Tests.ps1: import the BUILT module from Dist (NOT the source).
-# ModuleBuilder only exports the public functions in the built module, so tests must run
-# against the build output, the same artifact a user installs.
-function Get-BuiltPrtgManifest {
-  $repo = Split-Path -Parent $PSScriptRoot
-  $manifest = Get-ChildItem -Path (Join-Path $repo 'Dist') -Recurse -Filter 'PrtgSensorKit.psd1' -ErrorAction SilentlyContinue |
-    Sort-Object LastWriteTime -Descending | Select-Object -First 1 -ExpandProperty FullName
-  if (-not $manifest) {
-    throw "Built module not found under Dist/. Run '.\tasks.ps1 build' (or Build-Module) first."
-  }
-  $manifest
+# Shared by every *.Tests.ps1: target selection, import helpers and fixtures. Dot-sourced in
+# BeforeAll, and at top level where a -Skip: expression needs it. Names and paths come from
+# Tools/module_info.ps1, which reads build.psd1, so nothing here hardcodes a module name.
+. (Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'Tools') 'module_info.ps1')
+
+# 'Source' or 'Dist'. Read from an environment variable, not a parameter: Pester evaluates
+# -Skip: expressions at discovery time and spawns child processes in some tests, and a variable
+# reaches both. Set by ./tasks.ps1 test -Target.
+function Get-TestTarget {
+  [OutputType([string])]
+  param()
+  $value = [Environment]::GetEnvironmentVariable((Get-TestTargetVariableName))
+  if ($value -eq 'Dist') { 'Dist' } else { 'Source' }
 }
 
-function Import-BuiltPrtgModule {
-  Import-Module (Get-BuiltPrtgManifest) -Force
+# The manifest the behaviour tests run against. Also what a test that spawns a child PowerShell
+# passes to that child, so the child tests the same tree.
+function Get-ModuleUnderTestPath {
+  [OutputType([string])]
+  param()
+  if ((Get-TestTarget) -eq 'Dist') { Get-BuiltManifestPath } else { (Get-ModuleInfo).SourceManifest }
+}
+
+function Import-ModuleUnderTest {
+  Import-OneModule -Manifest (Get-ModuleUnderTestPath)
+}
+
+# For the artifact tests and the fuzzer: the build, whatever the target.
+function Import-BuiltModule {
+  Import-OneModule -Manifest (Get-BuiltManifestPath)
+}
+
+# Unload by name first: Import-Module -Force loads a second module beside one imported from
+# another path, leaving two modules of one name with doubled exports.
+function Import-OneModule {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string]$Manifest
+  )
+  Remove-Module -Name (Get-ModuleInfo).ModuleName -Force -ErrorAction SilentlyContinue
+  Import-Module $Manifest -Force
+}
+
+# $null when the build is fresh, otherwise the sentence the artifact test fails with. Catches
+# Pester run by hand against yesterday's build; ./tasks.ps1 test builds first anyway.
+function Get-StaleBuildReason {
+  [OutputType([string])]
+  param()
+  $info = Get-ModuleInfo
+  $built = Get-ChildItem -Path $info.DistRoot -Recurse -Filter "$($info.ModuleName).psm1" -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if (-not $built) {
+    return "No built module under '$($info.DistRoot)'. Run './tasks.ps1 build'."
+  }
+  $newest = Get-ChildItem -Path $info.SourceRoot -Recurse -File -ErrorAction SilentlyContinue |
+    Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if ($newest -and $newest.LastWriteTime -gt $built.LastWriteTime) {
+    return ("The built module is older than the source. '$($built.Name)' was built {0}, " -f $built.LastWriteTime.ToString('o')) +
+      ("'$($newest.Name)' was changed {0}. Run './tasks.ps1 build'." -f $newest.LastWriteTime.ToString('o'))
+  }
+  $null
 }
 
 # Single definition of the host check used by -Skip: expressions, which Pester evaluates at

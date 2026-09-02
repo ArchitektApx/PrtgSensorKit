@@ -1,6 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 }
 
 # Dot-sourced at top level as well as in BeforeAll: -Skip: is evaluated at DISCOVERY time.

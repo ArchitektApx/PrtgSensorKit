@@ -4,7 +4,7 @@ $onWindows = Test-OnWindowsHost
 
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 
   # Writes a fixture sensor script and runs the Doctor on it, capturing findings only
   # (the host summary goes to the information stream and is not asserted here).

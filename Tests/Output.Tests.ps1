@@ -1,6 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 }
 
 Describe 'Sensor message' {
@@ -182,7 +182,7 @@ Describe 'One factory owns the output document shape' {
     # Imported fresh so the document under test is the one the module built at import time, and
     # read BEFORE Clear-PrtgOutput replaces it. Clearing first would compare one document with
     # itself, and the drift this guards against is exactly between those two.
-    Import-BuiltPrtgModule
+    Import-ModuleUnderTest
     $atImport = Write-PrtgOutput | ConvertFrom-Json
 
     Clear-PrtgOutput

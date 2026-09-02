@@ -18,8 +18,15 @@ function Get-PrtgLogCallerScriptPath {
   [OutputType([string])]
   param()
 
+  # A module frame is recognised by the folder it lies under, not by a file name: the built
+  # module is one concatenated file, while an import straight from Source/ gives every frame
+  # its own source file name and the file name check would take one of them for the sensor
+  # script. ModuleBase is the module object's own base folder, so it covers both; the file's
+  # script root would not, being one subfolder down under the source tree.
+  $moduleRoot = $ExecutionContext.SessionState.Module.ModuleBase + [IO.Path]::DirectorySeparatorChar
+  $casing = if (Test-PrtgWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
   $frame = Get-PSCallStack | Where-Object {
-    $_.ScriptName -and $_.ScriptName -notmatch '[\\/]PrtgSensorKit\.psm1$'
+    $_.ScriptName -and -not $_.ScriptName.StartsWith($moduleRoot, $casing)
   } | Select-Object -First 1
   if ($frame) { return $frame.ScriptName }
   return $null

@@ -187,7 +187,7 @@ BeforeDiscovery {
 
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-BuiltModule
 
   # PowerShell adds these to every advanced function; they are not part of this module's surface.
   $script:CommonParameters =
