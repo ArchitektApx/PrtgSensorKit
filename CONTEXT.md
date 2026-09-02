@@ -99,3 +99,22 @@ that adding a check costs no extra pass over the script.
 The host a sensor script ends up running in after any restart helper it uses,
 decided as pwsh over 64-bit over 32-bit. Distinct from the host PRTG starts,
 which is always the 32-bit host no matter what the script restarts into.
+
+### Testing
+
+**Test target**:
+The tree a test run imports the module from: the source tree, or the built
+module a user installs. A run has exactly one.
+_Avoid_: test mode, test flavour
+
+**Behaviour test**:
+A test of what the module does, written against its public and private
+functions. It imports whichever tree the test target names, so a failure
+points at a source file and line by default.
+_Avoid_: unit test, integration test (which name the integration sensors)
+
+**Artifact test**:
+A test of the built module itself: that it was built from the source tree as it
+stands, that it imports, and that nothing the source tree defines or exports was
+lost on the way. It always reads the built module, whatever the test target.
+_Avoid_: build test, Dist test
