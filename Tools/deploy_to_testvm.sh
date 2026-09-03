@@ -6,7 +6,8 @@
 # What it does:
 #   1. delete the old repo copy on the VM and copy the current working tree over
 #   2. run lint and build once, then the test suite under three Windows hosts
-#      (WinPS 5.1 x64, pwsh 7, WinPS 5.1 x86), then the fuzzer under two
+#      (WinPS 5.1 x64, pwsh 7, WinPS 5.1 x86), each run rebuilding for itself, then the
+#      fuzzer under two
 #   3. install the freshly built module to the WinPS + pwsh AllUsers module paths, removing
 #      any previous version, and verify each edition resolves the copy just installed
 #   4. clear the PRTG EXEXML directory and copy the integration sensors in flat, with a
@@ -89,9 +90,12 @@ scp -q -r "${COPY_ITEMS[@]}" "${VM}:${REMOTE_REPO_SCP}/"
 
 # --- 3. lint, build, test on the VM -------------------------------------------------------
 # Windows PowerShell 5.1 is the real PRTG sensor runtime; pwsh 7 catches Desktop-vs-Core
-# regressions against the same build; 32-bit WinPS is what PRTG actually starts unless a sensor
-# relaunches itself, and is the only host exercising WOW64 redirection. Lint and build run once:
-# lint is host-independent and every host imports the one Dist build.
+# regressions; 32-bit WinPS is what PRTG actually starts unless a sensor relaunches itself, and
+# is the only host exercising WOW64 redirection. Lint runs once because it is host-independent.
+# The explicit build fails the deploy on a build error before any host runs tests; each test run
+# rebuilds for itself, so the three hosts each verify the behaviour tests against the source tree
+# and the artifact tests against the build that host just made. Step 4 therefore installs the
+# build the last test run left behind, not the explicit one.
 run_remote_task() {
   local task="$1"
   local host="${2:-powershell}"
