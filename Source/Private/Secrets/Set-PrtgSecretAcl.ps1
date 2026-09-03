@@ -1,8 +1,13 @@
 function Set-PrtgSecretAcl {
-  # Locks a secret FILE down to the account that created it, Administrators, and SYSTEM. DPAPI
-  # already restricts *decryption* to the saving account; this is defence in depth so other
-  # non-admin users cannot even read the encrypted blob. Windows-only (uses NTFS ACLs).
-  # Never call this on the store folder: it is shared by every sensor account on the probe.
+  <#
+  .SYNOPSIS
+    Locks a secret file down to the account that created it, Administrators, and SYSTEM.
+  .DESCRIPTION
+    Windows-only NTFS hardening on top of the DPAPI protection, so that other non-admin
+    users cannot read the encrypted blob either.
+  .PARAMETER Path
+    The secret file. Never the store folder.
+  #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseCompatibleCommands', '',
     Justification = 'Get-Acl/Set-Acl are Windows-only by design; this helper is only ever called on Windows (Save-PrtgSecret guards the call with Test-PrtgWindows).')]
   [CmdletBinding(SupportsShouldProcess = $true)]
@@ -13,13 +18,11 @@ function Set-PrtgSecretAcl {
 
   $acl = Get-Acl -LiteralPath $Path
 
-  # Disable inheritance and drop any inherited/explicit rules so only ours remain. The $false
-  # already discards the inherited ones; the loop is belt and braces for any explicit ACE.
+  # Inheritance off and every existing rule dropped, so only the three rules below remain.
   $acl.SetAccessRuleProtection($true, $false)
   @($acl.Access) | ForEach-Object { [void]$acl.RemoveAccessRule($_) }
 
-  # 'None': this only ever runs against a secret FILE, never the store folder, so there is
-  # nothing to inherit the rules.
+  # 'None': the target is a file, so nothing can inherit the rules.
   $inherit = 'None'
   $identities = @(
     [System.Security.Principal.WindowsIdentity]::GetCurrent().User            # the saving account

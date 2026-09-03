@@ -1,8 +1,8 @@
 <#
 .SYNOPSIS
-  WORKING: opting a single command out of the 1.3.0 terminating-error behavior.
+  WORKING: opting a single command out of the terminating-error behavior.
 .DESCRIPTION
-  The escape hatch for the 1.3.0 change demonstrated by failing/22-nonterminating-error.ps1.
+  The escape hatch from the behavior demonstrated by failing/22-nonterminating-error.ps1.
   When a command inside the block is genuinely allowed to fail - an optional data source, a
   probe that is not always present - opt THAT command out and keep the rest of the block
   protected.

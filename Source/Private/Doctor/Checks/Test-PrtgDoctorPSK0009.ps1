@@ -16,12 +16,8 @@ function Test-PrtgDoctorPSK0009 {
     New-PrtgDoctorFinding -CheckId 'PSK0009' -Severity 'Pass' -Message 'No web cmdlets used; TLS setup not needed.'
   } else {
     $forceTlsStates = @($invokeCalls | ForEach-Object { Get-PrtgDoctorSwitchState -Context $Parsed -Call $_ -Name 'ForceModernTls' })
-    # Manual TLS setup = an assignment whose TARGET is the ServicePointManager
-    # SecurityProtocol member (not any variable containing that substring) and whose
-    # value mentions a modern protocol, either literally or via a variable whose own
-    # literal assignment mentions one. '$SecurityProtocolBackup = ...' or an Ssl3-only
-    # assignment must not count; a value the Doctor cannot resolve is 'unknown', never
-    # a silent Pass or a false 'not set up'.
+    # Manual TLS setup is an assignment to the SecurityProtocol member itself whose value
+    # names Tls12 or Tls13, literally or through a variable; anything else is 'unknown'.
     $tlsAssignments = @($Parsed.Assignments | Where-Object {
       $_.Left.Extent.Text -match '(?i)ServicePointManager\]\s*::\s*SecurityProtocol\s*$'
     })

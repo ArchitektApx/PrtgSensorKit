@@ -23,15 +23,8 @@ function Test-PrtgDoctorEnvironment {
     $pwshCommand = Get-Command -Name 'pwsh' -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
   }
 
-  # The effective target host: where the script's own code ends up after any restart helper,
-  # pwsh over 64-bit over 32-bit. Only PSK0104 asks that question, so only PSK0104 reads this.
-  #
-  # The other three are not asking it and must not be routed through here. The two restart
-  # switches are independent booleans and a script may call both helpers: with both set the
-  # effective target is pwsh, but PSK0102 has to keep probing the 64-bit host or it stops
-  # answering the question it was asked. PSK0101 probes the 32-bit host unconditionally
-  # because that is the host PRTG starts, whatever the script restarts into. PSK0103 needs
-  # the pwsh command itself, not a target, and already reads the lookup above.
+  # The effective target host, pwsh over 64-bit over 32-bit. $targetExe and $targetName feed
+  # PSK0104 only; PSK0101-PSK0103 probe fixed hosts.
   $targetExe = $null
   $targetName = ''
   if ($UsesRestartInPwsh) {

@@ -1,11 +1,9 @@
 # Shared by every *.Tests.ps1: target selection, import helpers and fixtures. Dot-sourced in
-# BeforeAll, and at top level where a -Skip: expression needs it. Names and paths come from
-# Tools/module_info.ps1, which reads build.psd1, so nothing here hardcodes a module name.
+# BeforeAll, and at top level where a -Skip: expression needs it.
 . (Join-Path (Join-Path (Split-Path -Parent $PSScriptRoot) 'Tools') 'module_info.ps1')
 
-# 'Source' or 'Dist'. Read from an environment variable, not a parameter: Pester evaluates
-# -Skip: expressions at discovery time and spawns child processes in some tests, and a variable
-# reaches both. Set by ./tasks.ps1 test -Target.
+# 'Source' or 'Dist', held in an environment variable so it reaches both discovery-time -Skip:
+# expressions and the child PowerShell some tests spawn. Set by ./tasks.ps1 test -Target.
 function Get-TestTarget {
   [OutputType([string])]
   param()
@@ -61,18 +59,16 @@ function Get-StaleBuildReason {
   $null
 }
 
-# Single definition of the host check used by -Skip: expressions, which Pester evaluates at
-# DISCOVERY time - so this must work before any BeforeAll runs, and on Windows PowerShell 5.1
-# where $IsWindows does not exist.
+# The host check for -Skip: expressions, which Pester evaluates at DISCOVERY time: it runs
+# before any BeforeAll, and on Windows PowerShell 5.1 where $IsWindows does not exist.
 function Test-OnWindowsHost {
   [OutputType([bool])]
   param()
   ($PSVersionTable.PSEdition -eq 'Desktop') -or [bool]$IsWindows
 }
 
-# A store folder under TestDrive, unique per call so two tests in one file never share one.
-# Created by default. -NoCreate marks the sites whose subject needs the folder absent: the
-# state resolver creates its own folder, the secret resolver deliberately does not.
+# A store folder under TestDrive, unique per call so two tests never share one. Created by
+# default; -NoCreate marks the sites whose subject needs the folder absent.
 function New-TestStore {
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
     Justification = 'Test fixture creating a folder under TestDrive, which Pester removes; -WhatIf/-Confirm do not apply.')]

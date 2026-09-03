@@ -4,8 +4,8 @@ function Invoke-PrtgSensor {
     Runs a sensor script block and emits exactly one valid PRTG response.
 
   .DESCRIPTION
-    The batteries-included way to write a sensor. Wrap your channel-building logic in a script
-    block and Invoke-PrtgSensor handles all the boilerplate for you:
+    Wrap your channel-building logic in a script block and Invoke-PrtgSensor handles the
+    sensor boilerplate:
 
     - starts from a clean output state (calls Clear-PrtgOutput),
     - sets $ErrorActionPreference to 'Stop' so any failure is caught,
@@ -16,18 +16,6 @@ function Invoke-PrtgSensor {
     Inside the block, build channels with New-PrtgChannel | Add-PrtgChannel and set the message
     with Set-PrtgMessage. Do NOT call Write-PrtgOutput / Write-PrtgError yourself and do NOT
     write to the output stream (see the note below) - the wrapper produces the single response.
-
-    Optional extras:
-
-    - -RetryCount re-runs a throwing block up to N additional times (with an optional
-      -RetryDelaySeconds pause) before giving up; the sensor message or error text notes
-      the retries that were used.
-    - -ForceModernTls switches the process to TLS 1.2/1.3 before your block runs, which
-      Windows PowerShell 5.1 often needs for web requests.
-    - -DryRun returns the sensor result as an inspectable object instead of JSON, for
-      debugging in a normal console.
-    - -EnableLogging writes the sensor lifecycle (start, retries, success summary, full
-      error details) to a per-run log file via Write-PrtgLog, without touching stdout.
 
   .PARAMETER ScriptBlock
     The sensor logic. Add one or more channels and set the message here; the block may contain
@@ -63,8 +51,7 @@ function Invoke-PrtgSensor {
     log folder '$env:ProgramData\PrtgSensorKit\Logs\<scriptname>\', or in -LogPath. The
     directory also becomes the default for Write-PrtgLog calls inside the block for the
     duration of the call. Logging can never affect the sensor result; file errors are
-    swallowed. Without this switch, behavior is identical to previous versions and the
-    wrapper creates no files.
+    swallowed. Without this switch the wrapper creates no files.
 
   .PARAMETER LogPath
     Directory for this sensor's log files (requires -EnableLogging). A relative path
@@ -84,6 +71,10 @@ function Invoke-PrtgSensor {
     against modern endpoints. The setting is process-wide and is not restored afterwards;
     sensor processes are short-lived. Harmless on PowerShell 7+, where the defaults are
     already modern.
+
+  .OUTPUTS
+    System.String. The PRTG sensor JSON.
+    System.Management.Automation.PSCustomObject. With -DryRun, the sensor result object.
 
   .EXAMPLE
     Invoke-PrtgSensor {
@@ -162,9 +153,8 @@ function Invoke-PrtgSensor {
     [Parameter(Mandatory = $false)]
     [switch]$DryRun,
 
-    # The 'Logging' set groups these three in Get-Help. EnableLogging is deliberately NOT
-    # mandatory in the set: a mandatory switch would make an interactive console PROMPT
-    # for it when only -LogPath/-MaxLogs are given. The guard below throws instead.
+    # The 'Logging' set groups these three in Get-Help. EnableLogging is not mandatory in the
+    # set: a mandatory switch makes an interactive console prompt, so the guard below throws.
     [Parameter(Mandatory = $false, ParameterSetName = 'Logging')]
     [switch]$EnableLogging,
 
@@ -190,14 +180,11 @@ function Invoke-PrtgSensor {
 
   $ErrorActionPreference = 'Stop'
 
-  # PRTG's credential placeholder environment variables are per-process and are set before
-  # the sensor starts, so the import-time seeding usually covers them. Re-seeded here for a
-  # long-lived host that imported the module before the variables existed.
+  # Re-seeded for a long-lived host that imported the module before PRTG's per-process
+  # credential placeholder variables existed.
   Initialize-PrtgRedaction
 
-  # -LogPath and -MaxLogs only configure logging, so they require the -EnableLogging
-  # opt-in. Enforced here instead of via parameter sets: a mandatory switch would make an
-  # interactive console PROMPT for -EnableLogging instead of failing with a clear error.
+  # -LogPath and -MaxLogs only configure logging, so they require the -EnableLogging opt-in.
   if (-not $EnableLogging) {
     foreach ($parameterName in 'LogPath', 'MaxLogs') {
       if ($PSBoundParameters.ContainsKey($parameterName)) {
@@ -226,19 +213,16 @@ function Invoke-PrtgSensor {
       Write-PrtgLog "sensor start (attempt 1/$($RetryCount + 1)): script '$(Get-PrtgLogScriptName)', host $($PSVersionTable.PSEdition) $($PSVersionTable.PSVersion) $bitness"
     }
 
-    # Attempt loop: $retriesUsed counts FAILED attempts so far. The block runs at most
-    # RetryCount + 1 times; output state is cleared before every attempt so a failed partial
-    # attempt cannot leak channels or a message into the next one.
+    # $retriesUsed counts failed attempts. Output state is cleared before every attempt, so a
+    # failed partial attempt cannot leak channels or a message into the next one.
     $retriesUsed = 0
     $lastError = $null
 
     while ($true) {
       Clear-PrtgOutput
       try {
-        # Must be the GLOBAL preference: the script block is bound to the caller's session
-        # state, so the function-scope assignment at the top is invisible to it. Scoped to
-        # this call only - under a global 'Stop' a failed log write inside this cmdlet's own
-        # code would terminate before the sensor response is ever emitted.
+        # The block is bound to the caller's session state, so only the global preference
+        # reaches it. Restored at once, or a failed log write here kills the response.
         $eapRestore = $global:ErrorActionPreference
         $global:ErrorActionPreference = 'Stop'
         try {
@@ -264,8 +248,7 @@ function Invoke-PrtgSensor {
 
     if ($null -ne $lastError) {
       if ($EnableLogging) {
-        # The payoff entry of the logging feature: everything PRTG's one-line error text
-        # flattens away, across multiple lines in a single log entry.
+        # Everything PRTG's one-line error text flattens away, in a single log entry.
         $details = @(
           "sensor failed: $($lastError.Exception.GetType().FullName)"
           "message: $($lastError.Exception.Message)"
@@ -275,8 +258,7 @@ function Invoke-PrtgSensor {
         ) -join [Environment]::NewLine
         Write-PrtgLog -Level Error $details
       }
-      # All attempts failed. A dry run surfaces the real error for debugging; a real run
-      # emits the PRTG error response, prefixed with the retry summary when retries were used.
+      # A dry run surfaces the real error; a real run emits the PRTG error response.
       if ($DryRun) { throw $lastError }
       if ($RetryCount -gt 0) {
         Write-PrtgError -ErrorString "unsuccessful after $RetryCount retries: $(Format-PrtgErrorText -ErrorObject $lastError)"
@@ -297,8 +279,6 @@ function Invoke-PrtgSensor {
     }
 
     if ($EnableLogging) {
-      # Deliberate single reach-through into the output document, for this log line only. No
-      # accessor: a private function with exactly one caller would be a thin wrapper.
       Write-PrtgLog "sensor ok: $($script:OutputObject.prtg.result.Count) channels, message '$(Get-PrtgMessage)', $($stopwatch.ElapsedMilliseconds) ms"
     }
 

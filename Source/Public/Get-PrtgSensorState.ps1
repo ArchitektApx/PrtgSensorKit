@@ -53,6 +53,11 @@ function Get-PrtgSensorState {
 
     Averages all samples stored in the last hour; entries come back newest first.
 
+  .OUTPUTS
+    System.Management.Automation.PSCustomObject. Entries with 'Value' and 'Timestamp' (UTC),
+    newest first. With -Latest, the bare value of the newest entry. -Default when nothing
+    matches.
+
   .LINK
     Save-PrtgSensorState
   .LINK
@@ -112,11 +117,8 @@ function Get-PrtgSensorState {
     return $newest.Value
   }
 
-  # Newest first by real elapsed time. Two rules, both needed for this path to name the same
-  # entry as -Latest: a hand-written or foreign clixml can hold Local or Unspecified kinds, so
-  # the comparison normalizes to UTC; and Sort-Object is not stable while UtcNow has ~15 ms
-  # resolution, so the append index breaks ties in favour of the entry written last - file order
-  # is append order, the same rule Get-PrtgNewestEntry applies with its -ge comparison.
+  # Newest first, normalized to UTC and tie-broken by append order, the same rule
+  # Get-PrtgNewestEntry applies.
   $order = 0
   $decorated = @($entries | ForEach-Object { [PSCustomObject]@{ Order = $order++; Entry = $_ } })
   return @($decorated |

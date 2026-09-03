@@ -21,7 +21,7 @@ function Restart-As64BitPowershell {
   [CmdletBinding()]
   param()
 
-  # Only restart when we're in 32-bit process on 64-bit Windows
+  # Only a 32-bit process relaunches.
   if (-not [Environment]::Is64BitProcess) {
     $Powershell64BitPath = "$env:WINDIR\sysnative\windowspowershell\v1.0\powershell.exe"
     if (-not (Test-Path -LiteralPath $Powershell64BitPath -PathType Leaf)) {

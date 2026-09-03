@@ -110,9 +110,8 @@ Describe 'State management' {
 }
 
 Describe 'A null output document' {
-  # Four consumers behave four different ways on a null document, and that is deliberate: the
-  # two that fail today name what went wrong, and the two that are silent today stay silent,
-  # because making a silent path throw could turn a sensor that is green today red on upgrade.
+  # Four consumers behave four different ways on a null document: the two that fail name what
+  # went wrong, and the two that are silent stay silent, as the compatibility promise requires.
   AfterEach { Clear-PrtgOutput }
 
   It 'is accepted by Set-PrtgOutput without an error' {
@@ -164,8 +163,7 @@ Describe 'A null output document' {
     @($records | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) |
       Should -BeNullOrEmpty
     # What it emits differs by host: pwsh 7 serializes the literal 'null', Windows PowerShell
-    # 5.1 emits nothing. Both are unchanged behaviour, so neither value is pinned here. What
-    # matters is that it does not fail and does not invent a document.
+    # 5.1 emits nothing, so neither value is pinned.
     "$records" | Should -Not -Match 'prtg'
   }
 
@@ -180,8 +178,7 @@ Describe 'A null output document' {
 Describe 'One factory owns the output document shape' {
   It 'gives Clear-PrtgOutput and the import-time document the same shape' {
     # Imported fresh so the document under test is the one the module built at import time, and
-    # read BEFORE Clear-PrtgOutput replaces it. Clearing first would compare one document with
-    # itself, and the drift this guards against is exactly between those two.
+    # read BEFORE Clear-PrtgOutput replaces it.
     Import-ModuleUnderTest
     $atImport = Write-PrtgOutput | ConvertFrom-Json
 

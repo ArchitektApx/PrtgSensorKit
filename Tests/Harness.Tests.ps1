@@ -1,10 +1,8 @@
 # Tests for the test harness itself, not for the module. Imports nothing.
 
 Describe 'Test runner' {
-  # Tools/tests.ps1 must lower $ErrorActionPreference to 'Continue' around Invoke-Pester. Under
-  # 'Stop' the Write-Error below terminates the function instead of writing to the stream, and
-  # every test in this repository that asserts on a non-terminating error would fail for a
-  # reason that has nothing to do with the module.
+  # Tools/tests.ps1 lowers $ErrorActionPreference to 'Continue' around Invoke-Pester. Under
+  # 'Stop' the Write-Error below terminates the function instead of writing to the stream.
   It 'lets a command write a non-terminating error to the stream' {
     function Invoke-ErrorWriter { [CmdletBinding()] param() Write-Error 'expected'; 'result' }
     $out = Invoke-ErrorWriter 2>&1

@@ -3,17 +3,7 @@
 # deploy_to_testvm.sh - one-shot deploy of the working tree to a Windows test VM, so the
 # integration sensors can be checked by hand against a real PRTG probe.
 #
-# What it does:
-#   1. delete the old repo copy on the VM and copy the current working tree over
-#   2. run lint and build once, then the test suite under three Windows hosts
-#      (WinPS 5.1 x64, pwsh 7, WinPS 5.1 x86), each run rebuilding for itself, then the
-#      fuzzer under two
-#   3. install the freshly built module to the WinPS + pwsh AllUsers module paths, removing
-#      any previous version, and verify each edition resolves the copy just installed
-#   4. clear the PRTG EXEXML directory and copy the integration sensors in flat, with a
-#      '<category>_' name prefix (PRTG does not list scripts in nested folders)
-#   5. run Test-MalformedDoctor.ps1 on the VM to confirm the Doctor flags every malformed_*
-#      sensor as expected
+# Tools/README.md describes what it runs; the '[n/5]' banners below mark each step.
 #
 # Any failure at any step aborts the deploy.
 #
@@ -27,15 +17,11 @@
 # For developing on macOS, Linux, or WSL, where the tools cannot run against a Windows host
 # locally. Developing on Windows, run ./tasks.ps1 directly instead.
 #
-# Requirements:
-#   - key-based ssh to the VM (the script is non-interactive and never prompts)
-#   - a '.testvm' file in the repo root holding the host, e.g.  IP=prtgsensorkit-testvm
-#     (gitignored: the VM is yours, not the project's)
-#   - on the VM: the repo's dev requirements installed for BOTH editions, and PRTG installed
+# Tools/README.md documents the requirements: key-based ssh, the '.testvm' file, and what the
+# VM itself needs.
 #
-# The remote paths below match that VM layout. Override them per environment with the
-# TESTVM_* environment variables rather than editing this file. TESTVM_REPO must not contain
-# spaces (it is an scp destination); TESTVM_EXEXML may, and does by default.
+# The TESTVM_REPO and TESTVM_EXEXML environment variables override the remote paths below.
+# TESTVM_REPO must not contain spaces, since it is an scp destination; TESTVM_EXEXML may.
 
 set -euo pipefail
 
@@ -89,13 +75,9 @@ echo "==> [2/5] Copying working tree to the VM"
 scp -q -r "${COPY_ITEMS[@]}" "${VM}:${REMOTE_REPO_SCP}/"
 
 # --- 3. lint, build, test on the VM -------------------------------------------------------
-# Windows PowerShell 5.1 is the real PRTG sensor runtime; pwsh 7 catches Desktop-vs-Core
-# regressions; 32-bit WinPS is what PRTG actually starts unless a sensor relaunches itself, and
-# is the only host exercising WOW64 redirection. Lint runs once because it is host-independent.
-# The explicit build fails the deploy on a build error before any host runs tests; each test run
-# rebuilds for itself, so the three hosts each verify the behaviour tests against the source tree
-# and the artifact tests against the build that host just made. Step 4 therefore installs the
-# build the last test run left behind, not the explicit one.
+# Three hosts: 32-bit WinPS 5.1 is what PRTG starts and the only one exercising WOW64
+# redirection, 64-bit WinPS 5.1 is the sensor runtime, pwsh 7 catches Desktop-vs-Core gaps.
+# Each test run rebuilds for itself, so step 4 installs the build the last run left behind.
 run_remote_task() {
   local task="$1"
   local host="${2:-powershell}"
@@ -128,7 +110,6 @@ $ErrorActionPreference = 'Stop'
 # ssh pipe Windows PowerShell serializes it to stderr as CLIXML noise.
 $ProgressPreference = 'SilentlyContinue'
 
-# Locate the freshly built module and its version.
 $manifest = Get-ChildItem -Path (Join-Path $repo 'Dist') -Recurse -Filter 'PrtgSensorKit.psd1' -ErrorAction SilentlyContinue |
   Sort-Object LastWriteTime -Descending | Select-Object -First 1
 if (-not $manifest) { throw 'Built module not found under Dist. Did the build step succeed?' }
@@ -136,7 +117,6 @@ $src = $manifest.Directory.FullName
 $version = (Import-PowerShellDataFile $manifest.FullName).ModuleVersion
 Write-Host "Built module version $version at $src"
 
-# Install to the AllUsers module paths for both editions, removing prior versions.
 $roots = @(
   'C:\Program Files\WindowsPowerShell\Modules',   # Windows PowerShell 5.1 (shared 32/64-bit)
   'C:\Program Files\PowerShell\Modules'           # PowerShell 7+ (pwsh)
@@ -182,7 +162,7 @@ Write-Host "pwsh import OK from `$p"
 # Flattened with a '<category>_' prefix: PRTG only lists scripts in the EXEXML root.
 if (-not (Test-Path $exexml)) { throw "PRTG EXEXML directory not found: $exexml" }
 
-# Clear existing scripts (and any nested Integration folder from an earlier deploy).
+# Also removes a nested Integration folder from an older layout.
 Get-ChildItem $exexml -File -Filter *.ps1 | Remove-Item -Force
 $oldNested = Join-Path $exexml 'Integration'
 if (Test-Path $oldNested) { Remove-Item $oldNested -Recurse -Force }

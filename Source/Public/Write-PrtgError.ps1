@@ -25,6 +25,9 @@ function Write-PrtgError {
 
     Reports a custom error message to PRTG.
 
+  .OUTPUTS
+    System.String. The PRTG error JSON.
+
   .LINK
     Write-PrtgOutput
   #>

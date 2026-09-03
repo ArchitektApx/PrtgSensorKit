@@ -1,9 +1,11 @@
 function Set-PrtgConsoleEncoding {
-  # Sets stdout to UTF-8 so non-ASCII channel names and messages reach PRTG intact.
-  #
-  # Never-throw: on .NET Framework this setter can fail when no console is attached, and every
-  # caller runs it immediately BEFORE writing the sensor response - an unguarded throw would mean
-  # emitting nothing at all.
+  <#
+  .SYNOPSIS
+    Sets stdout to UTF-8; never throws.
+  .DESCRIPTION
+    On .NET Framework the setter fails when no console is attached, so the failure is only
+    written to the verbose stream.
+  #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
     Justification = 'Non-interactive console setup on the sensor output path; a -Confirm prompt would stall a PRTG probe.')]
   [CmdletBinding()]

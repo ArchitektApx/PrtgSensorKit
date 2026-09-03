@@ -1,12 +1,10 @@
 function Invoke-PrtgRelaunch {
-  # Re-launches the CALLING sensor script in another PowerShell host, then exits with its code.
-  # Uses the caller's InvocationInfo (captured by the Restart-* function from the call stack)
-  # rather than [Environment]::GetCommandLineArgs(): PRTG does not start sensors with
-  # '-File script.ps1', so the process command line does not contain the script, but the caller's
-  # InvocationInfo always exposes the script path and the parameters it was called with.
-  #
-  # Always relaunches via -File (not -Command): a script invoked as `powershell -Command "& 'x.ps1'"`
-  # that calls `exit N` reports exit code 1, while -File reports N. -File preserves the exit code.
+  <#
+  .SYNOPSIS
+    Re-launches the calling sensor script in another PowerShell host and exits with its code.
+  .PARAMETER Invocation
+    The calling sensor script's InvocationInfo, captured by the Restart-* function.
+  #>
   [CmdletBinding()]
   param(
     [Parameter(Mandatory = $true)]
@@ -27,6 +25,7 @@ function Invoke-PrtgRelaunch {
 
   $newArgs = [System.Collections.Generic.List[string]]::new()
   '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass' | ForEach-Object { $newArgs.Add($_) }
+  # -File preserves the exit code; -Command does not.
   $newArgs.Add('-File')
   $newArgs.Add($scriptPath)
 

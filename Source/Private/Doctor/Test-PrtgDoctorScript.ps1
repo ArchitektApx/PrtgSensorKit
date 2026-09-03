@@ -6,7 +6,7 @@ function Test-PrtgDoctorScript {
     Pure static analysis: works everywhere, never executes the target script. Each check
     emits exactly one finding (Pass or its issue severity); position-sensitive checks may
     emit one finding per offending call site instead. Every check reads the whole-script
-    walks from the parse context it is handed, so future checks are additive.
+    walks from the parse context it is handed.
   #>
   [CmdletBinding()]
   param(

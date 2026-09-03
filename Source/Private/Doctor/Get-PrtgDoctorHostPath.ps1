@@ -1,7 +1,11 @@
 function Get-PrtgDoctorHostPath {
-  # Resolves the powershell.exe path for the requested bitness, honoring the WOW64
-  # filesystem redirection of the CURRENT process (System32 is redirected for 32-bit
-  # processes; Sysnative escapes the redirection).
+  <#
+  .SYNOPSIS
+    The powershell.exe path for the requested bitness.
+  .DESCRIPTION
+    Honors the WOW64 filesystem redirection of the current process: System32 is redirected
+    for a 32-bit process, and Sysnative escapes the redirection.
+  #>
   [CmdletBinding()]
   [OutputType([string])]
   param(

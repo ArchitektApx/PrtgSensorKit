@@ -122,9 +122,8 @@ Use-PrtgCachedResult -Key 'herd' -MaxAge (New-TimeSpan -Minutes 5) -Path '$dir' 
 "@)
     $async = $ps.BeginInvoke()
 
-    # Wait until the concurrent runspace actually holds the lock (module import is slow),
-    # then race it: this caller must block on the lock and come back with the FIRST
-    # caller's result, not run its own fetch.
+    # Waits until the concurrent runspace actually holds the lock, then races it: this caller
+    # must block and come back with the FIRST caller's result rather than run its own fetch.
     $lockFile = Join-Path $dir 'herd.clixml.lock'
     $deadline = [DateTime]::UtcNow.AddSeconds(15)
     $held = $false
@@ -163,8 +162,7 @@ Describe 'Use-PrtgCachedResult resilience' {
   }
 
   It 'keeps the previous cached value when the refresh write fails part-way' {
-    # Export-Clixml truncates before it writes, so refreshing straight into the cache file would
-    # corrupt the entry every sensor on the probe shares. The refresh writes a temp file first.
+    # The refresh writes a temp file first, then swaps it in.
     Use-PrtgCachedResult -Key 'atomic' -MaxAge ([TimeSpan]::FromMilliseconds(1)) -Path $dir { 'original' } | Out-Null
     Start-Sleep -Milliseconds 20
     Mock -CommandName Export-Clixml -ModuleName PrtgSensorKit -MockWith { throw 'simulated write failure' }
@@ -192,9 +190,8 @@ Describe 'Use-PrtgCachedResult resilience' {
   }
 
   It 'honours -Depth instead of always exporting at the hardcoded default' {
-    # Depth only bites on rich .NET objects (a FileInfo's Directory, a CIM instance), not on
-    # PSCustomObject trees, so a FileInfo is what makes the parameter observable: at depth 1 its
-    # Directory flattens to a string, at the default it survives as an object.
+    # Depth only bites on rich .NET objects, so a FileInfo makes the parameter observable: at
+    # depth 1 its Directory flattens to a string, at the default it survives as an object.
     $probe = New-Item -ItemType File -Path (Join-Path $dir 'probe.txt')
     Use-PrtgCachedResult -Key 'shallow' -MaxAge $script:FiveMinutes -Path $dir -Depth 1 { $probe } | Out-Null
     $flat = Use-PrtgCachedResult -Key 'shallow' -MaxAge $script:FiveMinutes -Path $dir { 'never' }

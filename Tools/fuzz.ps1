@@ -1,22 +1,21 @@
-# Mutation fuzzer for the surfaces that must survive arbitrary/adversarial input:
-#   A) the Doctor's script parser (Invoke-PrtgSensorDoctor) - must never throw, no matter
-#      how broken the sensor script on disk is; it only parses, never executes.
-#   B) the JSON output pipeline (New-PrtgChannel/Add-PrtgChannel/Write-PrtgOutput) - the
-#      module's core promise is "always emit valid JSON, never breaks PRTG".
-#   C) the sensor state store (Get/Save-PrtgSensorState) - fed bit-flipped clixml files to
-#      catch both crashes and SILENT data loss (a corrupted property that nothing throws on).
-#   D) error output (Write-PrtgError) - fed hand-built ErrorRecords, the one input shape a
-#      plain catch-and-report never produces (see the Section D comment below).
-#   E) the Invoke-PrtgSensor wrapper - fed script blocks that throw wild payloads, to check
-#      the retry/-DryRun/-EnableLogging orchestration never lets an error through unhandled.
-#   F) Write-PrtgLog - verifies its documented "never throws" contract under adversarial input.
-#
-# Runs against the BUILT module in Dist/ (build first). Every failure is written to
-# Tools/fuzz-failures/ as a repro artifact, and the seed is printed so a run can be replayed.
-#
-# Usage (from the repo root):
-#   ./tasks.ps1 fuzz
-#   pwsh -File Tools/fuzz.ps1 [-Iterations 3000] [-Seed 12345]
+<#
+.SYNOPSIS
+  Mutation fuzzer over the six surfaces that must survive adversarial input.
+.DESCRIPTION
+  A) Invoke-PrtgSensorDoctor's parser, fed byte-mutated sensor scripts; it must never throw.
+  B) New-PrtgChannel/Add-PrtgChannel/Write-PrtgOutput, which must always emit valid JSON.
+  C) Get/Save-PrtgSensorState, fed bit-flipped clixml, for crashes and silent data loss.
+  D) Write-PrtgError, fed hand-built ErrorRecords.
+  E) Invoke-PrtgSensor's retry/-DryRun/-EnableLogging orchestration, fed throwing blocks.
+  F) Write-PrtgLog, whose documented contract is that it never throws.
+
+  Runs against the built module in Dist/, so build first. Failures land in Tools/fuzz-failures/
+  as repro artifacts, and the seed is printed so a run can be replayed.
+.PARAMETER Iterations
+  Iterations per section.
+.PARAMETER Seed
+  Seed for the value and number sequence. Defaults to a random one.
+#>
 
 param(
   [int]$Iterations = 3000,
@@ -30,8 +29,7 @@ Write-Host "Fuzz seed: $Seed (rerun with -Seed $Seed to repeat the same value/nu
 Import-BuiltModule
 
 $failureDir = Join-Path $PSScriptRoot 'fuzz-failures'
-# Stale repro files from a previous run would otherwise mix with this run's (same iteration
-# indices get reused each time), making counts and saved artifacts ambiguous.
+# Iteration indices repeat every run, so stale repro files would mix with this run's.
 if (Test-Path -LiteralPath $failureDir) { Remove-Item -Path $failureDir -Recurse -Force }
 New-Item -ItemType Directory -Path $failureDir -Force | Out-Null
 
@@ -48,6 +46,10 @@ $examplesDir = Join-Path $PSScriptRoot (Join-Path '..' 'Examples')
 $seedFiles = @(Get-ChildItem -Path $malformedDir -Filter '*.ps1') + @(Get-ChildItem -Path $examplesDir -Filter '*.ps1')
 
 function Get-MutatedBytes([byte[]]$Bytes, [System.Random]$Rand) {
+  <#
+    .SYNOPSIS
+      A copy of the bytes with 1 to 19 random bit flips, inserts, deletes or slice duplications.
+  #>
   $out = [System.Collections.Generic.List[byte]]::new($Bytes)
   $mutations = $Rand.Next(1, 20)
   for ($m = 0; $m -lt $mutations; $m++) {
@@ -104,6 +106,10 @@ $nastyNumbers = @(
 )
 
 function Get-FuzzString([System.Random]$Rand) {
+  <#
+    .SYNOPSIS
+      A random string mixing control, quoting, RTL-override and astral characters.
+  #>
   # 1-in-5 near/over the Format-PrtgMessage 2000-char truncation boundary; otherwise short.
   $len = if ($Rand.Next(0, 5) -eq 0) { $Rand.Next(1900, 2600) } else { $Rand.Next(0, 500) }
   $sb = [System.Text.StringBuilder]::new()
@@ -131,8 +137,8 @@ for ($i = 0; $i -lt $Iterations; $i++) {
     $json = Write-PrtgOutput
     $parsed = ConvertFrom-Json -InputObject $json -ErrorAction Stop
 
-    # Format-PrtgMessage's contract: strip '#', truncate to 2000. Assert it, not just "no crash" -
-    # a truncation off-by-one wouldn't throw, it would just silently violate the contract.
+    # Format-PrtgMessage's contract: strip '#', truncate to 2000. A truncation off-by-one does
+    # not throw, so assert the contract rather than the absence of a crash.
     $limitMsg = $parsed.prtg.result[0].LimitErrorMsg
     if ($null -ne $limitMsg -and ($limitMsg.Length -gt 2000 -or $limitMsg.Contains('#'))) {
       throw "LimitErrorMsg not truncated/stripped correctly (length=$($limitMsg.Length))"
@@ -183,12 +189,8 @@ for ($i = 0; $i -lt $Iterations; $i++) {
     Write-Verbose "CRASH  Get-PrtgSensorState saved=$keep`n  $_"
   }
 
-  # No -MaxAge here, so the Timestamp filter (and its crash check above) never runs;
-  # this only catches a corrupted Value, which nothing throws on. The seed always saves
-  # Value = 1 (an [int]), so any surviving entry whose Value isn't an [int] - null,
-  # wrong type, whatever the mutated bytes decoded to - is corruption Get-PrtgStateEntry's
-  # {Value, Timestamp}-shape check let through silently. Same-type corruption (1 -> 5)
-  # is undetectable here: Value has no schema, so it's indistinguishable from real data.
+  # No -MaxAge, so the Timestamp filter never runs. The seed always saves Value = 1, so any
+  # surviving entry whose Value is not an [int] is corruption the shape check let through.
   try {
     $raw = Get-PrtgSensorState -Key $key -Path $stateDir -TimeoutSeconds 1
     if ($null -ne $raw) {
@@ -220,7 +222,7 @@ for ($i = 0; $i -lt $Iterations; $i++) {
 Write-Host "State: $stateCrashes crash(es), $stateSilent silent corruption(s) out of $Iterations."
 
 # --- Section D: error output, fed hand-built ErrorRecords -----------------------------
-# A throw always has non-null InvocationInfo; a hand-built ErrorRecord never does.
+# A throw always carries InvocationInfo; a hand-built ErrorRecord never does.
 Write-Host "--------------------------------"
 Write-Host "Fuzzing Write-PrtgError JSON ($Iterations error records)..."
 Write-Host "--------------------------------"
@@ -291,8 +293,8 @@ for ($i = 0; $i -lt $Iterations; $i++) {
   try {
     $result = Invoke-PrtgSensor @params
     if ($dryRun) {
-      # -DryRun's documented contract is "rethrow the original error" - returning
-      # normally instead means the wrapper silently swallowed a failing block.
+      # -DryRun's documented contract is to rethrow the original error, so returning normally
+      # means the wrapper swallowed a failing block.
       $sensorBreaks++
       $failures++
       $repro = Join-Path $failureDir "sensor-swallowed-$i.json"
@@ -317,14 +319,14 @@ for ($i = 0; $i -lt $Iterations; $i++) {
       "Payload: $payload`nParams: $($params.Keys -join ',')`nError: $_" | Set-Content -Path $repro -Encoding UTF8
       Write-Verbose "CRASH  Invoke-PrtgSensor let an exception escape (non-DryRun), saved=$repro`n  $_"
     }
-    # DryRun IS expected to throw here - that's the documented behavior, not a finding.
+    # -DryRun is documented to throw here, so it is not a finding.
   }
 }
 Write-Host "Invoke-PrtgSensor: $sensorBreaks break(s) out of $Iterations."
 
 # --- Section F: Write-PrtgLog, fed adversarial message content ------------------------
-# Docs state it never throws; this verifies that. Writes to the real default log location -
-# no public way to redirect a standalone call, but it's one file per run, self-bounding.
+# A standalone call has no public way to redirect its output, so this writes to the real
+# default log location, one file per run.
 Write-Host "--------------------------------"
 Write-Host "Fuzzing Write-PrtgLog ($Iterations messages)..."
 Write-Host "--------------------------------"

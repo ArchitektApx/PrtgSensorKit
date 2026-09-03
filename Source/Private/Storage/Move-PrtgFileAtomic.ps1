@@ -3,17 +3,9 @@ function Move-PrtgFileAtomic {
   .SYNOPSIS
     Moves a file over a destination without a window in which neither copy exists.
   .DESCRIPTION
-    Shared by every writer that builds its new content in a temp file first. Move-Item -Force
-    cannot be used to replace an existing file: the provider deletes the destination and THEN
-    moves, so a failure in between (a killed process, a virus scanner holding the temp file)
-    leaves the destination gone and nothing in its place.
-
-    [System.IO.File]::Replace does the swap in one step, and leaves the destination untouched
-    when it fails. It requires the destination to exist, so a first write still goes through
-    Move-Item, where there is nothing to lose.
-
-    NOTE: Replace keeps the DESTINATION's ACL, not the temp file's. A caller that hardens its
-    temp file has to re-apply the ACL afterwards.
+    Move-Item -Force deletes then moves, leaving a gap on failure. File.Replace swaps
+    atomically but needs an existing destination, so a first write uses Move-Item. Replace
+    keeps the destination's ACL, so a caller that hardened its temp file re-applies it.
   #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
     Justification = 'Non-interactive store write on the sensor path; a -Confirm prompt would stall a PRTG probe.')]

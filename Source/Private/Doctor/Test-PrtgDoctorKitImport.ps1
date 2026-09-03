@@ -1,7 +1,8 @@
 function Test-PrtgDoctorKitImport {
-  # Whether an Import-Module call imports PrtgSensorKit itself, by name or by manifest path.
-  # Literal arguments (scalar or array) are resolved by the shared argument helper so this check
-  # and the environment's import scan can never disagree on what counts as an import.
+  <#
+  .SYNOPSIS
+    Whether an Import-Module call imports PrtgSensorKit itself, by name or by manifest path.
+  #>
   [CmdletBinding()]
   [OutputType([bool])]
   param(

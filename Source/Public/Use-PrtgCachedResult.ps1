@@ -9,15 +9,12 @@ function Use-PrtgCachedResult {
     process every interval, so 8 sensors mean 8 identical expensive calls per interval.
     Use-PrtgCachedResult makes them share one: the first sensor to find the cache stale
     runs the block and stores the result; every other sensor gets the stored value.
-
-    Unlike a hand-rolled Get-PrtgSensorState / Save-PrtgSensorState pattern, concurrent
-    sensors that all see a stale cache do not all fetch: they wait briefly for the first
-    caller's fetch and then read the entry it just wrote. Exactly one fetch per expiry,
-    guaranteed.
+    Concurrent sensors that all see a stale cache wait briefly for that fetch and then read
+    the entry it wrote, so there is exactly one fetch per expiry.
 
     The cache is stored as a regular sensor state entry (same folder, same file format,
     same key namespace), so Get-PrtgSensorState can inspect it and Clear-PrtgSensorState
-    manages it - no separate cache tooling.
+    manages it.
 
     Semantics worth knowing:
 
@@ -34,10 +31,6 @@ function Use-PrtgCachedResult {
     - Never call Use-PrtgCachedResult for a key inside the block computing that same
       key: the inner call waits on the outer one, and the sensor hangs until the
       timeout.
-
-    When many metrics come from one source, also consider the alternative design: one
-    collector sensor with many channels. Use-PrtgCachedResult is for when you want
-    separate sensors (independent intervals, notifications, priorities per metric).
 
   .PARAMETER Key
     Cache identifier, shared machine-wide with sensor state. Used as the file name, so
@@ -138,8 +131,7 @@ function Use-PrtgCachedResult {
     [switch]$Force
   )
 
-  # The lock is held across check + fetch + write on purpose: that is the entire fix for
-  # the thundering-herd race the manual state pattern has.
+  # The lock spans check, fetch, and write, so concurrent callers produce exactly one fetch.
   Invoke-PrtgStateOperation -PrtgOpKey $Key -PrtgOpPath $Path -PrtgOpTimeout $TimeoutSeconds `
     -PrtgOpForce:$Force -PrtgOpBlock {
     param($PrtgOpState)
@@ -150,8 +142,6 @@ function Use-PrtgCachedResult {
     $entries = @($loaded)
 
     if ($entries.Count -gt 0) {
-      # The file may hold a history written by Save-PrtgSensorState; this cmdlet itself
-      # stores exactly one entry.
       $newest = Get-PrtgNewestEntry -Entries $entries
       # A cached $null is served like any other value unless -SkipNullCache asked for a retry.
       if ($newest.Timestamp.ToUniversalTime() -ge ([DateTime]::UtcNow - $MaxAge) -and
@@ -160,14 +150,13 @@ function Use-PrtgCachedResult {
       }
     }
 
-    # Miss: fetch while still holding the lock, so waiting siblings hit the fresh entry.
     # A throwing block skips the save, keeping any stale entry for the next caller.
     $result = & $ScriptBlock
     if ($SkipNullCache -and $null -eq $result) {
       Write-Verbose "Use-PrtgCachedResult: block returned `$null and -SkipNullCache is set; not caching '$Key'."
     } else {
-      # Written atomically: a corrupt cache entry would send every sensor on the probe back to
-      # the source at once, which is the stampede this cmdlet exists to prevent.
+      # Written atomically: a corrupt cache entry sends every sensor on the probe back to the
+      # source at once.
       Export-PrtgClixmlAtomic -PrtgWriteLiteralPath $file -PrtgWriteDepth $Depth -PrtgWriteInputObject ([PSCustomObject]@{
         Value     = $result
         Timestamp = [DateTime]::UtcNow

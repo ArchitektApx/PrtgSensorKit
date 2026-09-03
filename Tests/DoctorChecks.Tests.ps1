@@ -1,23 +1,13 @@
-# Pins the exact wording of every message the thirteen script checks can emit, one Describe
-# per check. Doctor.Tests.ps1 covers the same checks through the public cmdlet and must stay
-# byte-identical; a message assertion belongs here instead, at the check function, so that
-# rewording one message is a deliberate edit to one function and one test.
-#
-# The four environment checks are not extracted into per-check functions, so they are not
-# pinned here; Doctor.Tests.ps1 keeps covering them end to end.
+# Pins the exact wording of every message the thirteen script checks can emit, one Describe per
+# check. The four environment checks have no check function; Doctor.Tests.ps1 covers those.
 . $PSScriptRoot/_TestHelpers.ps1
 
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
   Import-ModuleUnderTest
 
-  # The check functions are private, so they are reached the same way Doctor.Tests.ps1
-  # reaches the environment checks.
-  #
-  # Every call site wraps the result in @(). A check that emits one finding comes back as a
-  # bare object, and under Windows PowerShell 5.1 a bare object has no .Count, so an
-  # unwrapped '$findings.Count | Should -Be 1' compares $null and fails on the host PRTG
-  # actually starts while passing on pwsh 7.
+  # The check functions are private, so they are reached through InModuleScope. Every call site
+  # wraps the result in @(): under Windows PowerShell 5.1 a bare object has no .Count.
   function Invoke-Check([string]$CheckId, [string]$Content) {
     $file = Join-Path $TestDrive "check-$(Get-Random).ps1"
     Set-Content -LiteralPath $file -Value $Content
@@ -347,9 +337,8 @@ Describe 'PSK0013 DPAPI secrets are bound to the sensor account' {
 
 Describe 'Check registration' {
   It 'runs, defines and documents the same set of checks' {
-    # A check with its own tests but no call in the runner would otherwise pass its own
-    # suite while never running against a real script. A check missing from the cmdlet's
-    # help, or listed there and never run, would otherwise ship as a wrong index.
+    # A check with tests but no call in the runner passes its own suite while never running
+    # against a real script; one missing from the cmdlet's help ships as a wrong index.
     InModuleScope PrtgSensorKit {
       $nameForm = '^Test-PrtgDoctorPSK\d{4}$'
 

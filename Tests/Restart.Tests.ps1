@@ -19,9 +19,8 @@ Describe 'Restart-* no-op safety' {
   }
 }
 
-# Real relaunch spawns a child PowerShell and calls exit, so it cannot run in-process. Drive it
-# through a probe script launched under a specific host and assert: the host switched, the exit
-# code passed through, the caller's own arguments survived, and injected flags were not duplicated.
+# A real relaunch spawns a child PowerShell and calls exit, so it cannot run in-process. A probe
+# script launched under a named host reports back what the relaunched process looks like.
 Describe 'Restart-* relaunch (Windows)' -Tag 'Windows' -Skip:(-not $onWindows) {
   BeforeAll {
     . $PSScriptRoot/_TestHelpers.ps1
@@ -106,8 +105,7 @@ exit 7
     It 'runs the target host exactly once (no double-run)' {
       (@($script:out | Where-Object { $_ -match 'BITS=' })).Count | Should -Be 1
     }
-    # No exit-code assertion here: a process launched via -Command "& 'script'" reports exit code 1
-    # for any non-zero exit (a PowerShell quirk of -Command, independent of the relaunch). Exit-code
-    # passthrough through the relaunch itself is covered by the -File context above.
+    # No exit-code assertion: a process launched via -Command "& 'script'" reports exit code 1
+    # for any non-zero exit, independent of the relaunch.
   }
 }

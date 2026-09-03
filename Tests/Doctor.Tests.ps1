@@ -575,9 +575,8 @@ Describe 'Doctor environment check dispatch' -Tag 'Windows' {
   }
 }
 
-# The PSK0101-0104 tests above mock Invoke-PrtgDoctorModuleProbe and Get-PrtgDoctorHostPath, so
-# the real bodies never run. These exercise them for real against a machine that actually has the
-# module installed for all users, which is the state a PRTG probe is in.
+# The PSK0101-0104 tests above mock Invoke-PrtgDoctorModuleProbe and Get-PrtgDoctorHostPath.
+# These need a machine with the module installed for all users, the state a PRTG probe is in.
 $moduleInstalledForReal = $onWindows -and [bool](
   Get-Module -ListAvailable -Name PrtgSensorKit -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -notlike '*Dist*' })

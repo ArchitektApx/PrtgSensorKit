@@ -1,6 +1,8 @@
 function Test-PrtgDoctorInSensorBlock {
-  # Whether a node sits inside one of the script blocks handed to Invoke-PrtgSensor, by source
-  # offset against the extents collected on the parse context.
+  <#
+  .SYNOPSIS
+    Whether a node sits inside one of the script blocks handed to Invoke-PrtgSensor.
+  #>
   [CmdletBinding()]
   [OutputType([bool])]
   param(

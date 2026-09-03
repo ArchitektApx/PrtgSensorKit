@@ -3,17 +3,22 @@ function Get-PrtgStateEntry {
   .SYNOPSIS
     Reads the entry list from a sensor state file and reports what was wrong with it.
   .DESCRIPTION
-    Shared by Save/Get/Clear-PrtgSensorState and Use-PrtgCachedResult: Import-Clixml the file,
-    drop any entry that isn't a well-formed {Value, Timestamp} object, and warn about both kinds
-    of damage. Corruption policy is decided here, so changing it is one edit and one review
-    rather than four. Callers supply only what this function cannot know: which cmdlet is
-    speaking, what that cmdlet calls the file, and what happens to an unreadable file next. The
-    noun comes in two parts because one caller qualifies it in one warning and not the other.
+    Imports the file, drops every entry that is not a well-formed {Value, Timestamp} object,
+    and warns about an unreadable file and about malformed entries.
 
-    Returns an [object[]] for zero, one and many entries alike, so a caller cannot silently get
-    a scalar or nothing. Assign the result before wrapping it: '@(Get-PrtgStateEntry ...)'
-    collects the returned array as a SINGLE element, while '$e = Get-PrtgStateEntry ...; @($e)'
-    yields the entries.
+    Returns an [object[]] for zero, one and many entries alike. Assign the result before
+    wrapping it: '@(Get-PrtgStateEntry ...)' collects the returned array as a SINGLE element,
+    while '$e = Get-PrtgStateEntry ...; @($e)' yields the entries.
+  .PARAMETER Cmdlet
+    Name of the calling cmdlet, used to prefix the warnings.
+  .PARAMETER Noun
+    What the warnings call the file: 'state file' for the state cmdlets, 'cache file' for the
+    shared cache.
+  .PARAMETER UnreadableConsequence
+    Completes "<noun> '<file>' is unreadable", so it carries its own joining punctuation:
+    " and will be replaced", ", refetching".
+  .PARAMETER UnreadableNoun
+    Noun for the unreadable warning alone. Defaults to -Noun.
   #>
   [CmdletBinding()]
   [OutputType([object[]])]
@@ -24,20 +29,12 @@ function Get-PrtgStateEntry {
     [Parameter(Mandatory = $true)]
     [string]$Cmdlet,
 
-    # 'state file' for the three state cmdlets, 'cache file' for the shared cache. Operator-facing
-    # framing rather than a claim about storage - the cache is an entry in the same store.
     [Parameter(Mandatory = $true)]
     [string]$Noun,
 
-    # Completes "<noun> '<file>' is unreadable", so it carries its own joining punctuation: one
-    # caller continues " and will be replaced", another ", refetching". Deliberately free-form.
-    # Constraining it to a fixed set would put the callers' vocabulary inside this function,
-    # which is the coupling it exists to remove: only the caller knows what happens next.
     [Parameter(Mandatory = $true)]
     [string]$UnreadableConsequence,
 
-    # Save-PrtgSensorState calls the file an 'existing state file' when it is about to replace
-    # it, and only in that one warning; its malformed warning uses the plain noun like the rest.
     [Parameter(Mandatory = $false)]
     [string]$UnreadableNoun
   )

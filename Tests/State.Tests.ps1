@@ -8,9 +8,7 @@ BeforeAll {
 $onWindows = Test-OnWindowsHost
 
 # Also discovery-time. The mixed-kind ordering tests only discriminate where the host's UTC
-# offset is nonzero: at offset zero a Local-marked and a Utc-marked timestamp compare identically
-# on the raw and the normalized path, so the tests would pass without the fix and guard nothing.
-# The tie assertion below carries the offset-independent half of the rule.
+# offset is nonzero: at offset zero the raw and the normalized comparison agree (ADR 0002).
 $noUtcOffset = ([TimeZoneInfo]::Local.GetUtcOffset([DateTime]::UtcNow) -eq [TimeSpan]::Zero)
 
 Describe 'Save/Get-PrtgSensorState round-trip' {
@@ -158,13 +156,7 @@ Describe 'Clear-PrtgSensorState' {
 }
 
 Describe 'Clear-PrtgSensorState -ClearLock -Force' {
-  # The two outcomes of this path are not symmetric, and one test cannot cover both: a successful
-  # removal is silent, and the only warning fires when the removal FAILS, which leaves the sidecar
-  # in place.
-  #
-  # The failure test calls the cmdlet directly, with no sensor block and no ambient preference set:
-  # Remove-Item reports a failed delete as a non-terminating error, so without the cmdlet's own
-  # -ErrorAction Stop the warning depends on Invoke-PrtgSensor's global 'Stop' preference.
+  # Success is silent and failure only warns, so the two outcomes need two tests.
   BeforeEach { $dir = New-TestStore 'clearforce' }
 
   It 'removes the sidecar and says nothing when nothing holds the lock' {
@@ -177,22 +169,18 @@ Describe 'Clear-PrtgSensorState -ClearLock -Force' {
 
     Test-Path $lock | Should -BeFalse
     Test-Path (Join-Path $dir 'freelock.clixml') | Should -BeFalse
-    # Silence on success is the current behaviour; warning here would be a behaviour change.
     $warnings | Should -BeNullOrEmpty
   }
 
   It 'warns and leaves the sidecar when the removal fails' -Tag 'Windows' -Skip:(-not $onWindows) {
-    # Windows only. The suite's lock helper opens with exclusive sharing, which blocks a second
-    # OPEN everywhere but blocks a DELETE only on Windows; on a POSIX host the deletion succeeds,
-    # the sidecar goes, and there is no failure to observe.
+    # The lock helper's exclusive sharing blocks a second OPEN everywhere but blocks a DELETE
+    # only on Windows; on a POSIX host the removal succeeds and there is no failure to observe.
     Save-PrtgSensorState -Key 'heldlock' -Value 1 -Path $dir
     $lock = Join-Path $dir 'heldlock.clixml.lock'
     $handle = Get-TestLockHandle $lock
     try {
-      # Streams are captured by redirection rather than with -ErrorVariable: an -ErrorAction Stop
-      # error record is collected there even after the cmdlet catches it, so -ErrorVariable cannot
-      # tell a reported failure from a handled one. What reaches the streams is what an operator
-      # sees.
+      # Redirection rather than -ErrorVariable: a caught -ErrorAction Stop record still lands in
+      # -ErrorVariable, so only the streams show what an operator actually sees.
       $records = & { Clear-PrtgSensorState -Key 'heldlock' -Path $dir -ClearLock -Force } 3>&1 2>&1
       $emitted = @($records | Where-Object { $_ -is [System.Management.Automation.WarningRecord] })
       $failures = @($records | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] })
@@ -279,7 +267,6 @@ Describe 'Sensor state locking' {
       }
       $holderOwnsLock | Should -BeTrue
 
-      # Must block until the holder releases, then succeed within the timeout.
       Save-PrtgSensorState -Key 'shared' -Value 'waited' -Path $dir -TimeoutSeconds 5
       Get-PrtgSensorState -Key 'shared' -Path $dir -Latest | Should -Be 'waited'
     } finally {
@@ -345,8 +332,7 @@ Describe 'Sensor state coverage gaps' {
 
   It 'fails fast with the access-denied wording when the lock folder is not writable (windows)' -Tag 'Windows' -Skip:(-not $onWindows) {
     # Same contract as the unix case, via a Deny ACE. Only CreateFiles is denied: the owner keeps
-    # ChangePermissions, so the finally can always remove the ACE again and TestDrive stays
-    # deletable. Denying more (or denying Delete) can strand the folder.
+    # ChangePermissions, so the finally can drop the ACE again and TestDrive stays deletable.
     $dir = New-TestStore 'denied'
     $me = [System.Security.Principal.WindowsIdentity]::GetCurrent().User
     $deny = [System.Security.AccessControl.FileSystemAccessRule]::new(
@@ -366,9 +352,8 @@ Describe 'Sensor state coverage gaps' {
 }
 
 Describe 'Timestamp tie-breaking' {
-  # UtcNow has ~15 ms resolution on .NET Framework: two quick saves can carry identical
-  # timestamps. The crafted files below make the tie deterministic instead of relying on
-  # a fast machine to reproduce the race (which is how CI caught it).
+  # UtcNow has ~15 ms resolution on .NET Framework, so two saves can tie. The crafted files
+  # make the tie deterministic.
   BeforeEach {
     $dir = New-TestStore 'tie'
     $ts = [DateTime]::UtcNow
@@ -542,11 +527,8 @@ Describe 'Relative -Path resolves against the PowerShell location, not the proce
 
 Describe 'State lock fails fast when its folder does not exist' {
   It 'throws the missing-folder message instead of stalling for the full timeout' {
-    # DirectoryNotFoundException derives from IOException, so without its own handling it
-    # lands in the retry arm and spins to the deadline blaming a concurrent run. Unreachable
-    # through the public cmdlets now that Get-PrtgStatePath creates the folder, so this
-    # exercises the lock helper directly - a -Path on a vanished network share reaches the
-    # same code.
+    # DirectoryNotFoundException derives from IOException, so without its own handling it spins
+    # to the deadline blaming a concurrent run. A -Path on a vanished share reaches this code.
     $missing = Join-Path $TestDrive "gone-$(Get-Random)/deeper/k.clixml.lock"
 
     # Returned rather than parked in $script:, which inside InModuleScope IS the module's own
@@ -572,8 +554,7 @@ Describe 'State lock fails fast when its folder does not exist' {
 
 Describe 'A caller script block sees its OWN variables inside the state lock' {
   It 'does not bind the lock function frame for names it used to declare' {
-    # '& $PrtgLockBlock' resolves unqualified names up the dynamic chain, so an unprefixed
-    # parameter on Invoke-PrtgStateLock would shadow these caller variables.
+    # An unprefixed parameter on Invoke-PrtgStateLock would shadow these caller names (ADR 0001).
     $lock = Join-Path $TestDrive "shadow-$(Get-Random).lock"
     [void] (New-Item -ItemType Directory -Path (Split-Path -Parent $lock) -Force)
 
@@ -604,10 +585,8 @@ Describe 'A caller script block sees its OWN variables inside the state lock' {
   }
 
   It 'does not bind EITHER frame when the block crosses the envelope and the lock' {
-    # Two frames now sit between a cmdlet and its block: Invoke-PrtgStateOperation above
-    # Invoke-PrtgStateLock, both in the dynamic chain '& $block' resolves through. The prefix
-    # assertions in Private.Tests.ps1 check that neither frame declares a colliding NAME;
-    # this checks that the prefixes actually protect the values, through both frames at once.
+    # Two frames sit between a cmdlet and its block, Invoke-PrtgStateOperation above
+    # Invoke-PrtgStateLock; the prefixes must protect the caller's values through both (ADR 0001).
     $dir = New-TestStore 'twoframe'
 
     $seen = InModuleScope PrtgSensorKit -Parameters @{ StorePath = $dir } {
@@ -668,10 +647,8 @@ Describe 'A caller script block sees its OWN variables inside the state lock' {
 }
 
 Describe 'Corruption warnings the operator relies on' {
-  # Characterization. The consequence clause is the operator's only signal about what happens to
-  # their data next, the noun is the framing each cmdlet uses for the file, and the cmdlet name is
-  # how the responsible sensor is found when several run at once. All three are operator-facing
-  # contract, so they are pinned here per cmdlet rather than tested as one generic "warns" case.
+  # The consequence clause tells the operator what happens to their data, the noun frames the
+  # file, and the cmdlet name identifies the sensor when several run at once.
   BeforeEach { $dir = New-TestStore 'warn' }
 
   Context 'an unreadable file' {
@@ -776,12 +753,8 @@ Describe 'Corruption warnings the operator relies on' {
 
 Describe 'Get-PrtgSensorState names one newest entry on both paths' {
   BeforeAll {
-    # A history whose raw timestamp comparison and whose UTC comparison point opposite ways.
-    # Placing the Local-marked entry half an offset from the Utc-marked one produces that
-    # disagreement whichever sign the host's offset has: the Local entry's real instant lands
-    # behind the Utc one under a positive offset and ahead of it under a negative one, while
-    # the raw values always say the opposite. 'stale' is far enough out to be dropped by any
-    # plausible -MaxAge, so one history exercises filtering and ordering together.
+    # A history whose raw timestamp comparison and whose UTC comparison point opposite ways,
+    # whichever sign the host's offset has. 'stale' is out of range for any plausible -MaxAge.
     function New-MixedKindHistory {
       [OutputType([PSCustomObject])]
       param([string]$Folder, [string]$Key)
@@ -840,10 +813,8 @@ Describe 'Get-PrtgSensorState names one newest entry on both paths' {
 }
 
 Describe 'Corruption warnings cross the state lock frame' {
-  # The warnings are raised one frame deeper than the cmdlet that owns them, so the two ways an
-  # operator controls them have to keep working through that frame. The per-clause assertions in
-  # 'Corruption warnings the operator relies on' cover the collecting half via -WarningVariable;
-  # this covers the silencing half, for all four cmdlets at once.
+  # The warnings are raised one frame deeper than the cmdlet that owns them, so both ways an
+  # operator controls them have to keep working through that frame. This is the silencing half.
   BeforeEach {
     $dir = New-TestStore 'suppress'
     foreach ($key in 'supsave', 'supget', 'supclear', 'supcache') {

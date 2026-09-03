@@ -1,30 +1,25 @@
-# Builds the module, then runs the Pester suite with code coverage over the SOURCE files and
-# prints a percentage per file plus every missed command, so a gap traces to a source line.
-#
-# Usage (from the repo root):
-#   ./tasks.ps1 coverage [-MinimumPercent 90]
-#   pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -File Tools/coverage.ps1
-#
-# The target is forced to Source: coverage over the source files is only meaningful when the
-# behaviour tests executed those files. Coverage is per host, and the relaunch cmdlets always
-# read as missed (they run in a child process). Compare hosts before calling a line untested.
+<#
+.SYNOPSIS
+  Builds the module, then runs the Pester suite with code coverage over the source files.
+.DESCRIPTION
+  Prints a total, a percentage per file and every missed command as '<file>:<line>: <command>'.
+  The target is forced to Source, since coverage over the source files only counts when the
+  behaviour tests executed those files. Coverage is per host, and the relaunch cmdlets always
+  read as missed because they run in a child process.
+.PARAMETER MinimumPercent
+  Exit non-zero when coverage falls below this percentage. 0 disables the gate.
+#>
 
 param(
-  # Exit non-zero when coverage falls below this percentage. 0 disables the gate.
   [double]$MinimumPercent = 0
 )
 
-# $global:, not a bare assignment, here and around the Pester call below: see the same note in
-# tests.ps1. A script-scoped copy shadows the global for every test block on Windows
-# PowerShell 5.1.
+# $global:, not a bare assignment, here and around the Pester call below: on Windows PowerShell
+# 5.1 a script-scoped copy sits in the scope chain of every test block and shadows the global.
 $previousErrorAction = $global:ErrorActionPreference
 $targetVariable = $null
 $previousTarget = $null
 
-# Everything that can throw runs inside the try, so the finally restores the caller's session
-# after a failed build or a missing Pester pin just as it does after a failed run. try/catch/
-# finally is not a scope in PowerShell, so the dot-sourced helpers below still land in this
-# script's scope.
 try {
   $global:ErrorActionPreference = 'Stop'
 
@@ -34,14 +29,12 @@ try {
   . (Join-Path $PSScriptRoot 'build.ps1')
 
   $info = Get-ModuleInfo
-  # '*.ps1' leaves the source loader out, which is wanted: it is not part of the built module.
+  # '*.ps1' leaves the source loader out; it is not part of the built module.
   $sourceFiles = @(Get-ChildItem -Path $info.SourceRoot -Recurse -Filter '*.ps1' -File |
       ForEach-Object { $_.FullName })
   if (-not $sourceFiles.Count) { throw "No *.ps1 files under '$($info.SourceRoot)'." }
 
-  # Load exactly the pinned Pester and state which version resolved. Pester versions change how
-  # many commands a coverage run analyzes, so a coverage number is meaningless without the version
-  # that produced it.
+  # Only the pinned Pester runs the suite; the pin lives in pester_pin.ps1.
   . (Join-Path $PSScriptRoot 'pester_pin.ps1')
   Import-PinnedPester
 
@@ -57,9 +50,8 @@ try {
   $targetVariable = Get-TestTargetVariableName
   $previousTarget = [Environment]::GetEnvironmentVariable($targetVariable)
 
-  # 'Stop' above guards this script's own setup only. The run itself needs 'Continue', or a
-  # Write-Error inside a test terminates the function instead of reaching the error stream the
-  # test reads.
+  # 'Stop' guards setup only; the run needs 'Continue', or a Write-Error inside a test
+  # terminates the function.
   $global:ErrorActionPreference = 'Continue'
   [Environment]::SetEnvironmentVariable($targetVariable, 'Source')
   $r = Invoke-Pester -Configuration $c
@@ -98,8 +90,8 @@ if ($cc.CommandsMissed.Count) {
   }
 }
 
-# throw, not exit: tasks.ps1 dot-sources this file, and an 'exit' in a dot-sourced script ends
-# only that script, so the gate would print its verdict and still report success to the caller.
+# tasks.ps1 dot-sources this file, and an 'exit' in a dot-sourced script ends only that script,
+# so the gate would still report success to the caller.
 if ($r.FailedCount -gt 0) {
   throw "Tests failed ($($r.FailedCount) failed / $($r.TotalCount) total)."
 }

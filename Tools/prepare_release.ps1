@@ -1,13 +1,12 @@
-# Prepares a release: gates on lint/build/test/fuzz, verifies the changelog has content for
-# the release, stamps the new version into README.md and build.psd1, then rebuilds and
-# verifies the built module actually carries the new version.
-#
-# Usage (from anywhere):
-#   ./Tools/prepare_release.ps1 -Version 1.1.0
-#
-# On success the working tree contains the stamped files (including the CHANGELOG
-# '[Unreleased]' section promoted to the version) and a fresh Dist build; review, commit,
-# and tag.
+<#
+.SYNOPSIS
+  Gates on lint/build/test/fuzz, stamps the version, then rebuilds and verifies the artifact.
+.DESCRIPTION
+  On success the working tree holds the stamped CHANGELOG.md, README.md and build.psd1, the
+  '[Unreleased]' section promoted to the version, and a fresh Dist build; review, commit, tag.
+.PARAMETER Version
+  Release version as x.y.z.
+#>
 
 param(
   [Parameter(Mandatory = $true, Position = 0)]
@@ -23,7 +22,7 @@ function Write-Step([string]$Text) {
   Write-Host "--------------------------------"
 }
 
-# Everything below assumes the repo root as working directory (like tasks.ps1 does).
+# Everything below assumes the repo root as working directory.
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
 try {
@@ -47,10 +46,9 @@ try {
   }
   $changelog = Get-Content -LiteralPath 'CHANGELOG.md' -Raw
 
-  # Section extraction is delegated to get_changelog_section.ps1 - the single source of
-  # truth for the changelog format, shared with .github/workflows/release.yml.
+  # get_changelog_section.ps1 is the single source of truth for the changelog format, shared
+  # with .github/workflows/release.yml.
   $getSection = Join-Path $PSScriptRoot 'get_changelog_section.ps1'
-  # 'Content' = at least one list item or sub-heading, not just blank lines.
   function Test-ChangelogSectionContent([string]$Body) {
     [bool]($Body -and $Body -match '(?m)^\s*(?:[-*]\s+\S|###\s+\S)')
   }
@@ -61,12 +59,11 @@ try {
   if (Test-ChangelogSectionContent $versionBody) {
     Write-Host "CHANGELOG.md: '[$Version]' section found with content."
   } elseif (Test-ChangelogSectionContent $unreleasedBody) {
-    # Promote the Unreleased section to this release.
     $today = Get-Date -Format 'yyyy-MM-dd'
     $changelog = $changelog -replace '(?m)^## \[Unreleased\][^\r\n]*', "## [$Version] - $today"
 
-    # Keep a Changelog link refs: repoint [Unreleased] at the new tag and add the
-    # release's compare link below it. Best-effort - warn when the pattern is absent.
+    # Keep a Changelog link refs: [Unreleased] moves to the new tag and the release's compare
+    # link goes below it. A missing pattern warns instead of failing.
     $linkPattern = '(?m)^\[Unreleased\]:\s*(?<base>\S+)/compare/v(?<prev>\S+)\.\.\.HEAD\s*$'
     $linkMatch = [regex]::Match($changelog, $linkPattern)
     if ($linkMatch.Success) {

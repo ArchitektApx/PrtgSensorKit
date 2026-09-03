@@ -3,12 +3,8 @@ function New-PrtgDynamicParameter {
     .SYNOPSIS
       Builds one companion parameter for New-PrtgChannel and adds it to the dictionary.
     .DESCRIPTION
-      The ParameterAttribute is constructed here, once per call. Reusing one instance across
-      two companion parameters makes them share mandatory state.
-
-      The validator arrives already constructed and typed as a plain attribute, so the caller
-      decides whether it is shared across families or fresh per call. ValidateSet instances are
-      immutable in use, so the size set is shared; the caller's other validators are not.
+      A fresh ParameterAttribute is built per call, so companion parameters never share
+      mandatory state. The validator arrives constructed; the caller decides whether to share it.
   #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
     Justification = 'Builds a parameter definition during binding; -WhatIf/-Confirm cannot apply inside dynamicparam.')]

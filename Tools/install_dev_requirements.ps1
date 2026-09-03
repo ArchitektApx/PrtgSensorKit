@@ -1,24 +1,22 @@
-# Installs the modules the other tools need (CurrentUser scope), skipping any already present.
-# Run this once per host - including once per EDITION on a machine that tests both Windows
-# PowerShell and pwsh, since they do not share a module path.
-#
-# Usage (from the repo root):
-#   ./tasks.ps1 install_dev_requirements
-#   pwsh -File Tools/install_dev_requirements.ps1
-#
-# Pester carries a RequiredVersion rather than a floor: a floor is satisfied by whatever version
-# arrived first, and Pester versions change how many commands a coverage run analyzes. The exact
-# pin still excludes the built-in Pester 3.4 that Windows PowerShell 5.1 ships. The other three
-# modules are deliberately unpinned.
-#
-# The pin itself lives in Tools/pester_pin.ps1, which the test and coverage runners import.
+<#
+.SYNOPSIS
+  Installs the modules the other tools need, CurrentUser scope, skipping any already present.
+.DESCRIPTION
+  Run once per host and once per edition: Windows PowerShell and pwsh do not share a module
+  path. Pester carries the exact pin from Tools/pester_pin.ps1; the other modules are unpinned.
+.EXAMPLE
+  ./tasks.ps1 install_dev_requirements
+.EXAMPLE
+  pwsh -File Tools/install_dev_requirements.ps1
+#>
+
 . (Join-Path $PSScriptRoot 'pester_pin.ps1')
 
 $RequiredModules = @(
   @{ Name = 'ModuleBuilder' }                    # builds the module from Source
   @{ Name = 'Configuration' }                    # required by ModuleBuilder
-  # SkipPublisherCheck: Windows PowerShell 5.1 ships a Microsoft-signed Pester 3.4, and installing
-  # the differently-signed v5+ side-by-side otherwise fails with a PublishersMismatch error.
+  # SkipPublisherCheck: Windows PowerShell 5.1 ships a Microsoft-signed Pester 3.4, and the
+  # differently-signed v5+ fails to install side-by-side with a PublishersMismatch error.
   @{ Name = 'Pester'; RequiredVersion = $PesterRequiredVersion; SkipPublisherCheck = $true } # runs the tests (v5 API)
   @{ Name = 'PSScriptAnalyzer'; SkipPublisherCheck = $true }                  # lint / compatibility checks
 )

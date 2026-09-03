@@ -39,6 +39,10 @@ function Get-PrtgSecret {
 
     Reads a stored credential and uses it directly.
 
+  .OUTPUTS
+    System.Security.SecureString or System.Management.Automation.PSCredential, whichever was
+    saved. System.String with -AsPlainText.
+
   .LINK
     Save-PrtgSecret
   #>
@@ -88,9 +92,7 @@ function Get-PrtgSecret {
   }
 
   if ($AsPlainText) {
-    # The module KNOWS this value is a secret, so register it for masking before handing it
-    # out: an exception message that echoes it back (a failing Invoke-RestMethod URI, say)
-    # is otherwise emitted to PRTG in the clear.
+    # Registered for masking before it is returned, or an echoed exception could leak it to PRTG.
     if ($object -is [System.Management.Automation.PSCredential]) {
       $plain = $object.GetNetworkCredential().Password
       Add-PrtgRedaction $plain
@@ -101,8 +103,7 @@ function Get-PrtgSecret {
       Add-PrtgRedaction $plain
       return $plain
     }
-    # Only reachable for a hand-written or foreign clixml. Throwing beats returning an object the
-    # caller asked to get as a string.
+    # Only reachable for a hand-written or foreign clixml.
     throw "Secret '$Name' holds a [$($object.GetType().FullName)], not a PSCredential or SecureString, so -AsPlainText cannot produce a string. Re-save it with Save-PrtgSecret -Secret or -Credential."
   }
 

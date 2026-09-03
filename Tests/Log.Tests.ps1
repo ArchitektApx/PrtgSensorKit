@@ -83,7 +83,7 @@ Describe 'Write-PrtgLog pruning' {
     Reset-PrtgLogState
     $dir = New-TestStore 'logs'
     # Run files this script would have written itself: '<scriptname>_<stamp>_<pid>.log'.
-    # Only these are prunable - see the 'never prunes files it did not create' cases below.
+    # Only these are prunable.
     foreach ($i in 1..5) {
       $stale = Join-Path $dir ('Log.Tests_2026010{0}-00000{0}_100{0}.log' -f $i)
       Set-Content -LiteralPath $stale -Value 'old run'
@@ -167,9 +167,7 @@ Describe 'Invoke-PrtgSensor -EnableLogging lifecycle' {
   }
 
   It 'keeps the run file it created, so later Write-PrtgLog calls append to it' {
-    # Regression: the run file was captured before the call created it and restored
-    # unconditionally, so a later Write-PrtgLog in the same script started a SECOND run file.
-    # Only -LogPath discards the run file, so only -LogPath may restore it.
+    # Only -LogPath discards the run file, so only -LogPath restores it.
     InModuleScope PrtgSensorKit -Parameters @{ Dir = $dir } {
       param($Dir)
       $script:PrtgLogDirectory = $Dir

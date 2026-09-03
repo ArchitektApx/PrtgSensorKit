@@ -106,7 +106,7 @@ Describe 'Save/Get-PrtgSecret DPAPI + ACL (Windows only)' -Tag 'Windows' -Skip:(
   }
 
   It 'leaves the secret folder ACL alone' {
-    # Regression test for the multi-account lockout.
+    # The folder ACL stays untouched; only the file is locked down.
     $path = New-TestStore 'folderacl'
     Save-PrtgSecret -Name 'Api' -Secret (ConvertTo-SecureString 'x' -AsPlainText -Force) -Path $path
     (Get-Acl $path).AreAccessRulesProtected | Should -BeFalse
@@ -125,8 +125,7 @@ Describe 'Save/Get-PrtgSecret DPAPI + ACL (Windows only)' -Tag 'Windows' -Skip:(
 
   It 're-locks the file after the swap, which inherits the REPLACED file ACL' {
     # [File]::Replace keeps the destination's ACL, not the temp file's, so a re-save over a file
-    # whose ACL is wrong (saved by another account, or edited by hand) would keep the wrong one.
-    # The previous test cannot catch this: both ACLs are already correct there.
+    # whose ACL is wrong keeps the wrong one.
     $path = New-TestStore 'reacl'
     Save-PrtgSecret -Name 'Relock' -Secret (ConvertTo-SecureString 'one' -AsPlainText -Force) -Path $path
     $file = Join-Path $path 'Relock.clixml'
@@ -239,8 +238,7 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   }
 
   It 'keeps the existing secret when the swap itself fails' {
-    # Regression: Move-Item -Force replaces by DELETING the destination and then moving, so a
-    # failure in between left neither copy on disk. The swap must leave the old secret intact.
+    # A swap that fails half-way must leave the old secret on disk.
     $path = New-TestStore 'swapfail'
     Save-PrtgSecret -Name 'Keep' -Secret (ConvertTo-SecureString 'original' -AsPlainText -Force) `
       -Path $path -AllowUnprotected -WarningAction SilentlyContinue
@@ -252,8 +250,8 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   }
 
   It 'keeps the existing secret when a rotation fails part-way' {
-    # Regression: Export-Clixml truncates before it writes, so writing straight to the target
-    # destroyed the old value when the write then threw.
+    # Export-Clixml truncates before it writes, so a write straight to the target destroys the
+    # old value when it throws.
     $path = New-TestStore 'rotate'
     Save-PrtgSecret -Name 'Rot' -Secret (ConvertTo-SecureString 'original' -AsPlainText -Force) `
       -Path $path -AllowUnprotected -WarningAction SilentlyContinue
@@ -272,10 +270,8 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   }
 
   It 'sweeps a stale temp file left by an earlier interrupted save' {
-    # A killed process (a PRTG sensor timeout, power loss) strands the temp file; nothing else
-    # in the module prunes it, so the next save of the same name has to.
-    # These names are the LEGACY generation, '<Name>.<guid>.tmp', written before this cmdlet
-    # shared the atomic writer. They hold real encrypted payload, so they must still be swept.
+    # A killed process strands the temp file and nothing else prunes it, so the next save of the
+    # same name has to. The legacy '<Name>.<guid>.tmp' names hold real payload and count too.
     $path = New-TestStore 'stale'
     $stale = Join-Path $path 'Stale.deadbeef.tmp'
     $other = Join-Path $path 'Other.deadbeef.tmp'
@@ -297,9 +293,8 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   }
 
   It 'leaves a fresh temp file alone (a concurrent save of the same secret)' {
-    # The secret store has no lock, so a second sensor instance can be part-way through its own
-    # save of the same name. Deleting its temp file would break that save - and on Windows make
-    # Export-Clixml recreate the file WITHOUT the ACL that save had already applied.
+    # The store has no lock, so a second sensor can be part-way through its own save of the same
+    # name. Deleting its temp file breaks that save and drops the ACL it had already applied.
     $path = New-TestStore 'concurrent'
     $inFlight = Join-Path $path 'Busy.abc123.tmp'
     Set-Content -LiteralPath $inFlight -Value 'another instance is writing this'
@@ -309,11 +304,8 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   }
 
   It 'names the secret and the account when the target cannot be replaced' {
-    # The store folder is shared but each file is locked to its saver, so the rename is where a
-    # cross-account name collision surfaces. A raw access-denied naming the GUID temp file does
-    # not tell the operator which secret failed or which account it is running as.
-    # A destination has to exist before there is anything to collide with, so this saves once
-    # first and fails the swap on the re-save.
+    # Each file is locked to its saver, so the rename is where a cross-account collision
+    # surfaces. A raw access-denied on the GUID temp file names neither the secret nor the account.
     $path = New-TestStore 'locked'
     Save-PrtgSecret -Name 'Owned' -Secret (ConvertTo-SecureString 'original' -AsPlainText -Force) `
       -Path $path -AllowUnprotected -WarningAction SilentlyContinue
@@ -328,9 +320,8 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   }
 
   It 'does not blame a collision for a failure that never reached the swap' {
-    # A full disk while writing the temp file is not a name collision. Reporting one would tell
-    # the operator to delete a secret as an administrator - and on a first save there is no
-    # destination to delete, while on a re-save the one they would delete is healthy.
+    # A full disk while writing the temp file is not a name collision. Reporting one sends the
+    # operator to delete a secret that is healthy, or one that does not exist yet.
     $path = New-TestStore 'nocollision'
     Mock -CommandName Export-Clixml -ModuleName PrtgSensorKit -MockWith {
       throw [System.IO.IOException]::new('There is not enough space on the disk.')
@@ -355,9 +346,8 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
   }
 
   It 'still reports a non-XML read failure as an account mismatch' {
-    # Well-formed XML whose SecureString payload is unreadable throws FormatException, NOT
-    # XmlException, so it must fall through to the DPAPI wording. Asserting the message matters:
-    # an unknown ELEMENT would also be an XmlException and would silently test the wrong branch.
+    # An unreadable SecureString payload in well-formed XML throws FormatException, not
+    # XmlException; asserting the message keeps this off the XmlException branch.
     $path = New-TestStore 'notsecret'
     Set-Content -LiteralPath (Join-Path $path 'Odd.clixml') -Value '<Objs Version="1.1.0.1" xmlns="http://schemas.microsoft.com/powershell/2004/04"><SS>NOT-HEX-ZZZZ</SS></Objs>'
     { Get-PrtgSecret -Name 'Odd' -Path $path -AllowUnprotected -ErrorAction Stop } |
@@ -367,8 +357,8 @@ Describe 'Save/Get-PrtgSecret partial-write handling' {
 
 Describe 'Save-PrtgSecret through the shared atomic writer' {
   It 'sweeps a stale temp file from the current naming generation' {
-    # The shared writer derives the temp name from the full leaf, so this secret's temps are now
-    # '<Name>.clixml.<guid>.tmp'. The legacy generation is covered by the sweep test above.
+    # The shared writer derives the temp name from the full leaf, so this secret's temps are
+    # named '<Name>.clixml.<guid>.tmp'.
     $path = New-TestStore 'stalecurrent'
     $stale = Join-Path $path 'Current.clixml.deadbeef.tmp'
     $other = Join-Path $path 'Other.clixml.deadbeef.tmp'
@@ -386,8 +376,7 @@ Describe 'Save-PrtgSecret through the shared atomic writer' {
   }
 
   It 'reads back a SecureString written at the previous serialization depth' {
-    # Before this cmdlet shared the writer it exported at Export-Clixml's implicit depth of 2
-    # rather than the writer's 5. Secrets already on disk must keep reading back.
+    # Secrets serialized at depth 2 must still read back; the writer uses 5.
     $path = New-TestStore 'depthsecure'
     (ConvertTo-SecureString 'legacy-token' -AsPlainText -Force) |
       Export-Clixml -LiteralPath (Join-Path $path 'OldSecure.clixml')
@@ -408,10 +397,8 @@ Describe 'Save-PrtgSecret through the shared atomic writer' {
   }
 
   It 'explains the collision when the destination is genuinely held open' -Tag 'Windows' -Skip:(-not $onWindows) {
-    # The mocked collision test above proves the wording; this one proves the dispatch. The swap
-    # now happens inside the shared writer, whose own cleanup catch runs first, so this arm sees
-    # a REAL [System.IO.File]::Replace failure only after a rethrow - and Windows PowerShell 5.1
-    # is documented to misdispatch a multi-type catch. Nothing is mocked here on purpose.
+    # Nothing is mocked: the arm sees a real [System.IO.File]::Replace failure rethrown through
+    # the writer's cleanup catch, where Windows PowerShell 5.1 misdispatches a multi-type catch.
     $path = New-TestStore 'heldopen'
     Save-PrtgSecret -Name 'Held' -Secret (ConvertTo-SecureString 'original' -AsPlainText -Force) `
       -Path $path -WarningAction SilentlyContinue
@@ -447,9 +434,8 @@ Describe 'Secret store folder resolution through the public cmdlets' {
   }
 
   It 'lands a relative -Path under the PowerShell location on a first save and a re-save' {
-    # The resolver deliberately leaves a relative path alone; every consumer below it goes
-    # through the PowerShell provider, which resolves against the current LOCATION rather than
-    # the process working directory.
+    # The resolver leaves a relative path alone; the consumers below it go through the
+    # PowerShell provider, which resolves against the current LOCATION, not the process cwd.
     $base = Join-Path $TestDrive "relsecret-$(Get-Random)"
     [void] (New-Item -ItemType Directory -Path $base -Force)
     Push-Location $base

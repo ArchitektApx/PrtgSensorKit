@@ -1,7 +1,5 @@
-# Artifact tests: the checks that are about the BUILD rather than about what the module does.
-# They read the built module whatever -Target says, so they also run inside every default
-# ./tasks.ps1 test run, against the build that run just made. Behaviour tests live one folder up
-# and import the tree -Target names.
+# Artifact tests: the checks about the BUILD rather than about what the module does. They read
+# the built module whatever -Target says; the behaviour tests one folder up import -Target's tree.
 
 # Top level too, not just BeforeAll: -Skip: and -ForEach expressions run at discovery time.
 . $PSScriptRoot/../_TestHelpers.ps1
@@ -68,9 +66,7 @@ Describe 'Every function in the source tree reaches the built module' {
   }
 }
 
-# ModuleBuilder rewrites the built manifest's exported-function entry from the public folder, so
-# the source manifest's list is the only one that can drift. It is what an import straight from
-# Source/ exports, and every behaviour test runs through it.
+# The source manifest is the only export list that can drift; ModuleBuilder rewrites the built one.
 Describe 'The source manifest and the built manifest export the same functions' {
   BeforeAll {
     $script:Info = Get-ModuleInfo

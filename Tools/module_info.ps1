@@ -1,11 +1,5 @@
-# Single source of truth for "which module does this repo build, and where does it land?".
-# build.psd1 is the authority, because ModuleBuilder reads the same file; every other tool asks
-# here instead of walking Dist/ or hardcoding the name. Dot-source it; it defines functions and
-# does nothing else on its own.
-#
-# Usage:
-#   . $(Join-Path $PSScriptRoot 'module_info.ps1')
-#   $info = Get-ModuleInfo
+# Single source of truth for the module's name, paths and version; build.psd1 is the authority,
+# because ModuleBuilder reads the same file. Dot-source it, it only defines functions.
 
 function Get-ModuleInfo {
   <#
@@ -54,10 +48,6 @@ function Get-TestTargetVariableName {
   <#
     .SYNOPSIS
       Name of the environment variable that tells the test suite which tree to import.
-    .DESCRIPTION
-      An environment variable rather than a parameter: it reaches every test file, and the child
-      PowerShell processes some tests spawn, without a parameter block or container data in each
-      file. Derived from the module name so a rename carries it.
   #>
   [OutputType([string])]
   param(

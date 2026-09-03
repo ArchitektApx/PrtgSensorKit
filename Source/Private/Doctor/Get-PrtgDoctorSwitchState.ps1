@@ -1,10 +1,11 @@
 function Get-PrtgDoctorSwitchState {
-  # Whether a switch parameter is on, off, or unknowable at one call site.
-  #
-  # A switch counts as ENABLED ('on') only when present without an argument (-X) or with
-  # an argument other than a literal $false (-X:$true, -X:$flag). '-X:$false' is 'off'.
-  # Splatted literal hashtables are resolved too; a splat the Doctor cannot resolve
-  # statically yields 'unknown' so checks never report a false Pass.
+  <#
+  .SYNOPSIS
+    Whether a switch is 'on', 'off' or 'unknown' at one call site.
+  .DESCRIPTION
+    '-X' and '-X:<anything but literal $false>' are on, '-X:$false' is off. Literal splat
+    hashtables are resolved; a splat that cannot be resolved statically is unknown.
+  #>
   [CmdletBinding()]
   [OutputType([string])]
   param(

@@ -1,6 +1,8 @@
 function Test-PrtgNumeric {
-  # True for any numeric value PRTG can carry in a channel or a limit. Explicit list rather than
-  # '[ValueType] and not bool', which would also admit enums, TimeSpan, Guid, and DateTime.
+  <#
+    .SYNOPSIS
+      True for any numeric value PRTG can carry in a channel or a limit.
+  #>
   [CmdletBinding()]
   [OutputType([bool])]
   param(

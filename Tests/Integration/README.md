@@ -68,7 +68,7 @@ Get-ChildItem .\Tests\Integration -Recurse -Filter *.ps1 |
 | malformed/19-encoding-no-bom.ps1 | malformed | Up, but channel name/message show mojibake under 5.1 (no parse error!) | PSK0011 Warning |
 | working/20-stored-secret.ps1 | working | Up; channel `Secret Length` = 11, message names the sensor account | PSK0013 Info |
 | failing/21-secret-wrong-account.ps1 | failing | Down; text starts `Failed to decrypt secret` and names the running account | PSK0013 Info |
-| failing/22-nonterminating-error.ps1 | failing | Down; text contains `Cannot find path` (was Up before 1.3.0) | all Pass |
+| failing/22-nonterminating-error.ps1 | failing | Down; text contains `Cannot find path` | all Pass |
 | working/23-error-opt-out.ps1 | working | Up; `Optional Present` = 0, `Required` = 1 | all Pass |
 | working/24-cim-uint64-raw.ps1 | working | Up; byte channels per volume, plus `Large Value` = 9007199254740993 | all Pass |
 | working/25-log-retention-guard.ps1 | working | Up; `Foreign Logs Intact` = 2, `Own Run Files` = 1 | all Pass |

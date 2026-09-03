@@ -1,17 +1,13 @@
 # Characterizes the module's ENTIRE public surface against the built artifact in Dist/.
 #
-# The module has promised since 1.1.0 that sensor scripts written for 1.0.0 and 1.1.0 run
-# unchanged. This file is what measures that promise: the exported function names, each one's
-# parameters and their types, the channel unit set, and the companion parameters each unit makes
-# available. Anything removed or reshaped fails here rather than in a sensor on a probe.
+# Measures the backward-compat promise: exports, parameters, units, companions. Anything removed
+# or reshaped fails here rather than in a sensor on a probe.
 #
 # The expected surface below is the contract, so it is written out in full rather than derived
 # from the module. A test that reads the surface and compares it with itself passes forever.
 #
 # Companion parameters are DYNAMIC, so a static listing of the command's parameters never sees
-# them. Get-Command -ArgumentList runs the dynamicparam block with those arguments bound, which is
-# the only way to observe them without invoking the command; the arguments are positional because
-# a hashtable is not bound for dynamic parameter discovery.
+# them. Get-Command -ArgumentList runs the dynamicparam block with those arguments bound.
 
 BeforeDiscovery {
   # The parameter types are FullNames on purpose: 'int' and 'System.Object' both print as
@@ -149,9 +145,8 @@ BeforeDiscovery {
     'Write-PrtgOutput'          = @{ Mandatory = @(); Pipeline = @(); Positional = @(); Sets = @('__AllParameterSets') }
   }
 
-  # Every unit the channel cmdlet accepts, mapped to the companion parameters that unit makes
-  # available and whether each one is mandatory. An empty set is as much a part of the contract as
-  # a populated one: a companion appearing on a unit that had none is a surface change too.
+  # Every unit the channel cmdlet accepts, mapped to the companions it offers and whether each is
+  # mandatory. An empty set is as much a part of the contract as a populated one.
   $script:ExpectedUnits = [ordered]@{
     BytesBandwidth = [ordered]@{ SpeedSize = $false; SpeedTime = $false }
     BytesDisk      = [ordered]@{ VolumeSize = $false }
@@ -227,9 +222,8 @@ BeforeAll {
     }
   }
 
-  # Runs the dynamicparam block with -Unit bound and returns the companion parameters it added,
-  # each mapped to its Mandatory flag. The arguments are positional: Get-Command binds a hashtable
-  # as a single value and the dynamicparam block then sees no unit at all.
+  # Runs the dynamicparam block with -Unit bound and returns the companions it adds, each mapped
+  # to its Mandatory flag. The arguments are positional: a hashtable binds as a single value.
   function Get-CompanionParameter {
     param([string]$Unit)
     $companions = @('CustomUnit', 'SpeedSize', 'SpeedTime', 'VolumeSize')
@@ -318,8 +312,8 @@ Describe 'Channel unit surface' {
   }
 
   It 'unit <Unit> keeps the recorded mandatory flag on every companion parameter' -ForEach $UnitCases {
-    # A companion that becomes mandatory breaks a call that used to bind: a non-interactive host
-    # throws ParameterBindingException for it.
+    # A companion that becomes mandatory breaks a call that omits it: a non-interactive host
+    # throws ParameterBindingException.
     $actual = Get-CompanionParameter -Unit $Unit
 
     $changed = @(

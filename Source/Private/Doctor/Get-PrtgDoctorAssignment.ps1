@@ -1,6 +1,8 @@
 function Get-PrtgDoctorAssignment {
-  # Every assignment in the analyzed script whose target is the named variable. Used to resolve
-  # splatted hashtables and variable-based values back to the literal they came from.
+  <#
+  .SYNOPSIS
+    Every assignment in the analyzed script whose target is the named variable.
+  #>
   [CmdletBinding()]
   [OutputType([System.Management.Automation.Language.AssignmentStatementAst[]])]
   param(

@@ -1,5 +1,8 @@
 function New-PrtgDoctorFinding {
-  # Shared finding constructor for all Doctor checks (script and environment).
+  <#
+  .SYNOPSIS
+    Builds the finding object every Doctor check emits.
+  #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
     Justification = 'Creates an in-memory result object only; no system state is changed.')]
   [CmdletBinding()]

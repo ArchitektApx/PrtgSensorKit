@@ -1,24 +1,24 @@
-# Static analysis of Source/: general style and correctness, then cross-version/platform
-# compatibility (Windows PowerShell 5.1 + pwsh 7). Any finding fails the run.
-#
-# Usage (from the repo root):
-#   ./tasks.ps1 lint
-#   pwsh -File Tools/lint.ps1
+<#
+.SYNOPSIS
+  PSScriptAnalyzer over Source/: style and correctness, then WinPS 5.1 / pwsh 7 compatibility.
+.DESCRIPTION
+  Any finding, warning or error, fails the run.
+.EXAMPLE
+  ./tasks.ps1 lint
+.EXAMPLE
+  pwsh -File Tools/lint.ps1
+#>
 
-# Fail loudly: without this, a broken import leaves Invoke-ScriptAnalyzer unresolved and
-# the script would happily print "No errors." over empty results.
+# Without this, a broken import leaves Invoke-ScriptAnalyzer unresolved and the script prints
+# "No errors." over empty results.
 $ErrorActionPreference = 'Stop'
 
 if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) {
   Write-Host "Installing PSScriptAnalyzer..."
   Install-Module PSScriptAnalyzer -Force -Scope CurrentUser -SkipPublisherCheck -ErrorAction Stop
 }
-# Gate on the COMMAND being callable, not on the module being listed: a session can have
-# PSScriptAnalyzer in Get-Module yet not expose Invoke-ScriptAnalyzer (a half-finished
-# import, or an editor that loaded it into another state), and a module-presence check
-# would then skip the repairing import and fail at the first Invoke-ScriptAnalyzer call.
-# No -Force: on an already-working module it would throw 'Assembly with same name is
-# already loaded'; when the command is missing, a plain Import-Module brings it back.
+# The gate is the command being callable: a session can list PSScriptAnalyzer yet not expose
+# Invoke-ScriptAnalyzer. No -Force, which throws 'Assembly with same name is already loaded'.
 if (-not (Get-Command Invoke-ScriptAnalyzer -ErrorAction SilentlyContinue)) {
   Import-Module PSScriptAnalyzer
 }
