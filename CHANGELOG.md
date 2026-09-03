@@ -15,6 +15,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   object binds as its string form, so pipe the property you mean. Masking, the `#` strip and
   the truncation apply as for a direct call; the positional and `-Text` calls are unchanged.
 
+### Changed
+
+#### Internal
+
+- **The behaviour tests run against the source tree; only the artifact tests read the build.**
+  `./tasks.ps1 test` builds, then imports `Source/`, so a failure names the source file and line
+  and a forgotten build can no longer pass. `-Target Dist` runs the same tests against the built
+  module and `-Path` runs one file or folder. The checks about the build itself moved to
+  `Tests/Artifact/`, always read `Dist/`, and now also catch a stale build and manifest drift.
+
+- **`./tasks.ps1 coverage` measures the source files.** It reports a percentage per file and
+  every missed command as `<file>:<line>: <command>`.
+
+- **The log caller detection recognises the module's own frames by its base folder** instead of
+  the root module's file name, which only ever matched the concatenated build.
+
 ## [1.4.3] - 2026-08-26
 
 ### Changed

@@ -8,9 +8,12 @@ all unverified.
 
 ## Gotchas that have burned us
 
-- **Tests run against the BUILT module in `Dist/`, not `Source/`.** Always
-  `pwsh -NoProfile -File ./tasks.ps1 build` before `test`, or you are testing the previous
-  build: green and unverified, which has produced false "all green" claims more than once.
+- **Behaviour tests run against `Source/`; only the artifact tests read `Dist/`.**
+  `./tasks.ps1 test` builds first and then imports the source tree, so a failure names the
+  source file and line; `-Target Dist` imports the build into those same tests instead.
+  `Tests/Artifact/` always reads the build, whatever the target, and runs inside every test
+  run. The remaining trap is a Pester session started by hand: it skips the runner's build,
+  and the artifact stale check is what catches it.
 - **Source must be pure ASCII** - non-ASCII breaks the built psm1 under WinPS 5.1.
   No em-dashes anywhere, including docs and CHANGELOG.
 - A stale installed 1.0.0 module can shadow `Dist/` on by-name import; prepend `Dist/` to

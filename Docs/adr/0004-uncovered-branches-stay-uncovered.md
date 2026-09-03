@@ -1,4 +1,11 @@
-# Uncovered branches stay uncovered, and the reason lives here, not in the source
+# Behaviour tests run against the source tree, and uncovered branches stay uncovered
+
+The behaviour tests import the source tree, so coverage is measured over the source files
+and reported per file. Only the tests under `Tests/Artifact/` read the built module, and
+they are about the build itself rather than about what the module does; `./tasks.ps1 test`
+and `./tasks.ps1 coverage` build first, so no run can measure a stale artifact.
+`./tasks.ps1 coverage` forces the `Source` target, because a coverage number over the
+source files only means something when those files are what executed.
 
 Every command the suite misses on all four hosts it runs on (macOS pwsh 7, and Windows
 PowerShell 5.1 x64, x86 and pwsh 7 on the Windows test VM) is left uncovered rather than
@@ -58,10 +65,12 @@ tests is a scoping decision, not a platform question.
 
 ## How to measure it again
 
-Intersect on `<line>: <command>` pairs, never on line numbers. A line holding two
-commands, such as `$who = if ($onWindows) { ... } else { $env:USER }`, is missed on every
-host while each half is covered on the host it applies to. Intersecting on lines reports
-it as permanently uncovered, and one round did. `comm` compares lexically, so sort
+Intersect on the `<file>:<line>: <command>` rows the coverage run prints under
+`--- Missed ---`, never on line numbers. The file is part of the key because coverage is
+measured per source file, and two files hold a line 40. A line holding two commands, such
+as `$who = if ($onWindows) { ... } else { $env:USER }`, is missed on every host while each
+half is covered on the host it applies to. Intersecting on lines reports it as permanently
+uncovered, and one round did. `comm` compares lexically, so sort
 lexically; coverage collected over ssh carries CRLF, strip it first. A locked DPAPI store
 on the VM stops the secret tests before they reach the code and inflates the
 intersection; the VM account must have logged on at the console since the last reboot.
@@ -74,6 +83,6 @@ not a live index.
 ## Consequences
 
 `Tools/coverage.ps1` prints, beside the number on every run, that a covered line is not a
-tested input. Nobody adds a permanence comment at a site; a new uncovered site gets a row
-in one of the categories above, or a test. A future test host that changes one of these
-facts changes this file, not the source.
+tested input, and a per-file table that says which area is thin. Nobody adds a permanence
+comment at a site; a new uncovered site gets a row in one of the categories above, or a
+test. A future test host that changes one of these facts changes this file, not the source.
