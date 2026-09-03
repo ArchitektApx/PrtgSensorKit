@@ -1,12 +1,14 @@
-# Extracts the body of a '## [<Heading>]' section from CHANGELOG.md (up to the next
-# '## ' heading, the link-reference footer, or end of file). Prints an empty string when
-# the section is missing; callers decide whether that is an error. Single source of truth
-# for the changelog section format - used by Tools/prepare_release.ps1 and
-# .github/workflows/release.yml.
-#
-# Usage:
-#   ./Tools/get_changelog_section.ps1 -Heading 1.1.0
-#   ./Tools/get_changelog_section.ps1 -Heading Unreleased -ChangelogPath ./CHANGELOG.md
+<#
+.SYNOPSIS
+  Extracts the body of a '## [<Heading>]' section from CHANGELOG.md.
+.DESCRIPTION
+  The body runs to the next '## ' heading, the link-reference footer, or end of file. A missing
+  section prints an empty string and callers decide whether that is an error. Single source of
+  truth for the changelog section format, shared with .github/workflows/release.yml.
+.PARAMETER Heading
+  Section heading without the brackets, a version or 'Unreleased'.
+.EXAMPLE
+#>
 
 param(
   [Parameter(Mandatory = $true, Position = 0)]

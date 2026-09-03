@@ -1,6 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 }
 
 # Dot-sourced at top level as well as in BeforeAll: -Skip: is evaluated at DISCOVERY time.
@@ -42,8 +42,7 @@ Describe 'Private helpers' {
 }
 
 # The pwsh-absent branch of Restart-InPwsh is reachable in-process only on Desktop edition, by
-# mocking away pwsh. The success branch relaunches and calls exit, so it stays covered by the
-# child-process relaunch tests in Restart.Tests.ps1 instead.
+# mocking away pwsh. The success branch relaunches and exits, so Restart.Tests.ps1 covers it.
 Describe 'Restart-InPwsh when pwsh is absent (Windows)' -Tag 'Windows' -Skip:(-not $onWindows) {
   It 'warns and returns without relaunching' {
     InModuleScope PrtgSensorKit {
@@ -77,11 +76,8 @@ Describe 'Test-PrtgNumeric' {
 }
 
 Describe 'Block-passing frame parameter names cannot shadow a caller block variable' {
-  # A function that invokes a caller-supplied block is a frame in the DYNAMIC scope chain the
-  # block resolves through - this frame first - so any unprefixed name it declares silently
-  # shadows the calling cmdlet's variable of the same name. The prefix is the only thing
-  # preventing that, and these two assertions are what keep a future parameter from reopening
-  # the hole. Every such frame in the module belongs in the tables below.
+  # An unprefixed name on a frame that invokes a caller-supplied block shadows the calling
+  # cmdlet's variable of the same name (ADR 0001). Every such frame belongs in the tables below.
   It 'exposes no ordinary parameter name' {
     InModuleScope PrtgSensorKit {
       $frames = @(
@@ -89,9 +85,8 @@ Describe 'Block-passing frame parameter names cannot shadow a caller block varia
           Leaky = @('TimeoutSeconds', 'Force', 'ScriptBlock', 'LockFile', 'DeleteLockOnRelease')
         }
         @{ Name = 'Invoke-PrtgStateOperation'
-          # A larger surface than the lock's, because this frame owns resolution too. These
-          # are the names it would plausibly have taken, not the full set the four blocks
-          # read; the prefix assertion below is what covers every name.
+          # The names this frame would plausibly have taken, not the full set the four
+          # blocks read; the prefix assertion below covers every name.
           Leaky = @('Key', 'Path', 'File', 'LockFile', 'State', 'Block', 'ScriptBlock',
                     'TimeoutSeconds', 'Timeout', 'Force', 'DeleteOnRelease', 'DeleteLockOnRelease')
         }
@@ -128,9 +123,7 @@ Describe 'Block-passing frame parameter names cannot shadow a caller block varia
 
 Describe 'Published lock wait defaults' {
   # Each of the four waits exists twice: the parameter declaration, and the '(default N)'
-  # clause of its help text. Nothing else fails if either copy drifts. The cache's 30 differs
-  # on purpose - sensors waiting on it hold out for the duration of a sibling's fetch, not
-  # for a quick file write - and unifying all four is exactly the drift this pin must catch.
+  # clause of its help text. Nothing else fails if either copy drifts.
   BeforeAll {
     # Shared marks the three that deliberately hold the same wait, which is the value the
     # cache's help text quotes back when it explains why its own is longer.
@@ -171,10 +164,8 @@ Describe 'Published lock wait defaults' {
   }
 
   It 'quotes the state cmdlets shared wait in the cache help' {
-    # Use-PrtgCachedResult justifies its 30 by naming the state cmdlets' 10 in prose. That is a
-    # third copy of their shared value and it would lie silently if they ever changed. The
-    # number comes from the table above, which the previous It has already bound to each
-    # declaration, so the prose reaches the declarations without a second AST walk of its own.
+    # The cache help names the state cmdlets' wait in prose, a third copy of that value. The
+    # number comes from the table above, which the previous It binds to each declaration.
     $shared = @($published | Where-Object { $_.Shared } | ForEach-Object { $_.Seconds } |
         Select-Object -Unique)
     $shared.Count | Should -Be 1 `
@@ -190,9 +181,8 @@ Describe 'Published lock wait defaults' {
 }
 
 Describe 'Get-PrtgSecretPath' {
-  # The whole point of the resolver: through the public seam this behaviour is reachable only via
-  # DPAPI-dependent cmdlets, which is why parts of the secret suite pass only on the VM after a
-  # console logon. These three need no DPAPI, no console logon, and no secret ever saved.
+  # Through the public seam this resolver is reachable only via DPAPI-dependent cmdlets. These
+  # three need no DPAPI, no console logon, and no secret ever saved.
   It 'returns the ProgramData default on Windows' {
     InModuleScope PrtgSensorKit {
       Mock Test-PrtgWindows -MockWith { $true }

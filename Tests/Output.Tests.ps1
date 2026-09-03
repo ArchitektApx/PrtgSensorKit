@@ -1,6 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 }
 
 Describe 'Sensor message' {
@@ -24,6 +24,44 @@ Describe 'Sensor message' {
   It 'returns empty string for an empty/null message' {
     Set-PrtgMessage ''
     Get-PrtgMessage | Should -BeExactly ''
+  }
+
+  It 'accepts the message by name' {
+    Set-PrtgMessage -Text 'direct'
+    Get-PrtgMessage | Should -Be 'direct'
+  }
+
+  It 'sets an empty message when called with no argument' {
+    Set-PrtgMessage 'earlier'
+    Set-PrtgMessage
+    Get-PrtgMessage | Should -BeExactly ''
+  }
+
+  It 'accepts one string from the pipeline' {
+    'hello' | Set-PrtgMessage
+    Get-PrtgMessage | Should -Be 'hello'
+  }
+
+  It 'keeps the last of several piped strings' {
+    'a', 'b' | Set-PrtgMessage
+    Get-PrtgMessage | Should -Be 'b'
+  }
+
+  It 'leaves the message untouched on an empty pipeline' {
+    Set-PrtgMessage 'kept'
+    @() | Set-PrtgMessage
+    Get-PrtgMessage | Should -Be 'kept'
+  }
+
+  It 'sets an empty message from a piped null item' {
+    Set-PrtgMessage 'earlier'
+    $null | Set-PrtgMessage
+    Get-PrtgMessage | Should -BeExactly ''
+  }
+
+  It 'binds a piped object as its string form, not by property name' {
+    [pscustomobject]@{ Text = 'x'; n = 1 } | Set-PrtgMessage
+    Get-PrtgMessage | Should -Be '@{Text=x; n=1}'
   }
 }
 
@@ -72,9 +110,8 @@ Describe 'State management' {
 }
 
 Describe 'A null output document' {
-  # Four consumers behave four different ways on a null document, and that is deliberate: the
-  # two that fail today name what went wrong, and the two that are silent today stay silent,
-  # because making a silent path throw could turn a sensor that is green today red on upgrade.
+  # Four consumers behave four different ways on a null document: the two that fail name what
+  # went wrong, and the two that are silent stay silent, as the compatibility promise requires.
   AfterEach { Clear-PrtgOutput }
 
   It 'is accepted by Set-PrtgOutput without an error' {
@@ -94,6 +131,12 @@ Describe 'A null output document' {
     Set-PrtgOutput $null
     { Set-PrtgMessage 'x' } | Should -Throw '*Set-PrtgMessage*output document is null*'
     { Set-PrtgMessage 'x' } | Should -Throw '*Clear-PrtgOutput*'
+  }
+
+  It 'makes Set-PrtgMessage name the cause and itself on piped input' {
+    Set-PrtgOutput $null
+    { 'x' | Set-PrtgMessage } | Should -Throw '*Set-PrtgMessage*output document is null*'
+    { 'x' | Set-PrtgMessage } | Should -Throw '*Clear-PrtgOutput*'
   }
 
   It 'fails no earlier than it did before' {
@@ -120,8 +163,7 @@ Describe 'A null output document' {
     @($records | Where-Object { $_ -is [System.Management.Automation.ErrorRecord] }) |
       Should -BeNullOrEmpty
     # What it emits differs by host: pwsh 7 serializes the literal 'null', Windows PowerShell
-    # 5.1 emits nothing. Both are unchanged behaviour, so neither value is pinned here. What
-    # matters is that it does not fail and does not invent a document.
+    # 5.1 emits nothing, so neither value is pinned.
     "$records" | Should -Not -Match 'prtg'
   }
 
@@ -136,9 +178,8 @@ Describe 'A null output document' {
 Describe 'One factory owns the output document shape' {
   It 'gives Clear-PrtgOutput and the import-time document the same shape' {
     # Imported fresh so the document under test is the one the module built at import time, and
-    # read BEFORE Clear-PrtgOutput replaces it. Clearing first would compare one document with
-    # itself, and the drift this guards against is exactly between those two.
-    Import-BuiltPrtgModule
+    # read BEFORE Clear-PrtgOutput replaces it.
+    Import-ModuleUnderTest
     $atImport = Write-PrtgOutput | ConvertFrom-Json
 
     Clear-PrtgOutput

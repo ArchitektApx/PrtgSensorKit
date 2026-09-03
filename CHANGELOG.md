@@ -5,6 +5,32 @@ All notable changes to PrtgSensorKit are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.5.0] - 2026-09-03
+
+### Added
+
+- **`Set-PrtgMessage` accepts the message from the pipeline.** `Get-Status | Set-PrtgMessage`
+  used to fail with a binding error, while `Add-PrtgChannel` and `Write-PrtgError` already took
+  pipeline input. Each piped item overwrites the message, so the last one wins, and a piped
+  object binds as its string form, so pipe the property you mean. Masking, the `#` strip and
+  the truncation apply as for a direct call; the positional and `-Text` calls are unchanged.
+
+### Changed
+
+#### Internal
+
+- **The behaviour tests run against the source tree; only the artifact tests read the build.**
+  `./tasks.ps1 test` builds, then imports `Source/`, so a failure names the source file and line
+  and a forgotten build can no longer pass. `-Target Dist` runs the same tests against the built
+  module and `-Path` runs one file or folder. The checks about the build itself moved to
+  `Tests/Artifact/`, always read `Dist/`, and now also catch a stale build and manifest drift.
+
+- **`./tasks.ps1 coverage` measures the source files.** It reports a percentage per file and
+  every missed command as `<file>:<line>: <command>`.
+
+- **The log caller detection recognises the module's own frames by its base folder** instead of
+  the root module's file name, which only ever matched the concatenated build.
+
 ## [1.4.3] - 2026-08-26
 
 ### Changed
@@ -516,7 +542,8 @@ shape changed. Sensors written against 1.0.0 behave identically after upgrading.
 - Full comment-based help on every command, 17 runnable examples, Pester suite run
   against the built module on Windows PowerShell 5.1 and PowerShell 7.
 
-[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.3...HEAD
+[Unreleased]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.5.0...HEAD
+[1.5.0]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.3...v1.5.0
 [1.4.3]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.2...v1.4.3
 [1.4.2]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.1...v1.4.2
 [1.4.1]: https://github.com/ArchitektApx/PrtgSensorKit/compare/v1.4.0...v1.4.1

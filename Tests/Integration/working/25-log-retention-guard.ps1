@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-  WORKING: log retention never deletes files this module did not create (1.4.0 fix).
+  WORKING: log retention never deletes files this module did not create.
 .DESCRIPTION
   Zero-config logging (no -LogPath) with -MaxLogs 1, so the retention sweep runs on every
   single scan instead of only after 30 runs. Before the sensor block, two decoy files are
@@ -11,11 +11,9 @@
     <scriptname>_extra_<stamp>_<pid>.log - a run file belonging to a DIFFERENT script whose
                                            name happens to start with this one's
 
-  Before 1.4.0 the sweep matched '*.log' across the whole folder and deleted both on the
-  first scan. Expected PRTG result: Up on every scan, 'Foreign Logs Intact' = 2 and
-  'Own Run Files' = 1. If either decoy is gone the sensor goes Down and names the file, so
-  a regression is loud rather than silent - which matters here, because the failure mode
-  being guarded is silent data loss in someone else's log folder.
+  Expected PRTG result: Up on every scan, 'Foreign Logs Intact' = 2 and 'Own Run Files' = 1.
+  If either decoy is gone the sensor goes Down and names the file, so data loss in someone
+  else's log folder is loud rather than silent.
 
   'Own Run Files' = 1 is the other half: the fix must not "work" by disabling retention.
 
@@ -26,8 +24,7 @@
 Import-Module PrtgSensorKit
 
 # Seeded BEFORE Invoke-PrtgSensor: the lifecycle 'sensor start' entry is this run's first
-# Write-PrtgLog, and that call is what creates the run file and prunes the folder. Anything
-# planted after it would miss this scan's sweep entirely.
+# Write-PrtgLog, and that call creates the run file and prunes the folder.
 $sensorName = [System.IO.Path]::GetFileNameWithoutExtension($PSCommandPath)
 $logDir = if (Test-Path Env:\ProgramData) { Join-Path $env:ProgramData "PrtgSensorKit\Logs\$sensorName" }
           else { Join-Path ([System.IO.Path]::GetTempPath()) "PrtgSensorKit/Logs/$sensorName" }

@@ -1,6 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 }
 
 Describe 'Write-PrtgError' {
@@ -29,8 +29,7 @@ Describe 'Write-PrtgError' {
   }
 
   It 'renders unknown invocation details instead of crashing (1.2.1 regression)' {
-    # An ErrorRecord built by hand, as opposed to one from a throw, has a $null InvocationInfo.
-    # Formatting one used to throw a NullReferenceException instead of emitting the response.
+    # A hand-built ErrorRecord has a null InvocationInfo, unlike one from a throw.
     $rec = [System.Management.Automation.ErrorRecord]::new(
       [System.InvalidOperationException]::new('handmade failure'),
       'PSK.HandBuilt',

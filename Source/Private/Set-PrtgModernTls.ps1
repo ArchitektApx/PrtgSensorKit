@@ -4,11 +4,8 @@ function Set-PrtgModernTls {
     Forces modern TLS (1.2, plus 1.3 when available) for all web requests in this process.
   .DESCRIPTION
     Sets [Net.ServicePointManager]::SecurityProtocol to TLS 1.2, adding TLS 1.3 when the
-    runtime knows it. The assignment REPLACES the previous protocol set on purpose: the
-    goal is to deterministically leave SSL3/TLS1.0 era defaults behind on Windows
-    PowerShell 5.1. Never throws because TLS 1.3 is unavailable - the Tls13 enum value is
-    missing on older .NET Framework builds and the assignment can throw on an OS without
-    TLS 1.3 support, so both cases fall back to TLS 1.2 alone.
+    runtime knows it. The assignment replaces the previous protocol set rather than adding
+    to it, and falls back to TLS 1.2 alone when TLS 1.3 is unavailable.
   #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
     Justification = 'Non-interactive sensor bootstrap that flips a process-wide TLS setting; a -Confirm prompt would stall a PRTG probe.')]

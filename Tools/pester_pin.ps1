@@ -1,12 +1,5 @@
-# The single source of the Pester version this repo tests and measures against. Dot-source it;
-# it defines $PesterRequiredVersion and Import-PinnedPester and does nothing else on its own.
-#
-# The pin exists because Pester versions change how many commands a coverage run analyzes, so a
-# coverage number is only comparable between hosts running the same version.
-#
-# Changing the pin means changing it here, in the one line of Tools/README.md that echoes the
-# number, and in the CI cache keys (.github/workflows/*.yml) that hash this file.
-# Tools/install_dev_requirements.ps1 installs it, Tools/tests.ps1 and Tools/coverage.ps1 import it.
+# The single source of the Pester version this repo tests and measures against; Pester versions
+# change how many commands a coverage run analyzes. Tools/README.md echoes the number.
 
 $PesterRequiredVersion = '6.1.0'
 
@@ -15,12 +8,8 @@ function Import-PinnedPester {
     .SYNOPSIS
       Loads exactly the pinned Pester and reports which version resolved.
     .DESCRIPTION
-      Removes any Pester already in the session first: Windows PowerShell 5.1 ships the built-in
-      Pester 3.4, which has no New-PesterConfiguration and would silently skip the whole suite.
-      An exact -RequiredVersion excludes it for that same reason.
-
-      A resolution failure ends the run rather than falling back, and names the pin and the script
-      that installs it, so the fix is one command and not an investigation.
+      Removes any Pester already in the session first, because Windows PowerShell 5.1 ships
+      Pester 3.4. Fails loudly, naming the pin and its installer, when the pin cannot resolve.
   #>
   [CmdletBinding()]
   param()

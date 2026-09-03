@@ -124,9 +124,8 @@ function Clear-PrtgSensorState {
     }
   }
 
-  # With -ClearLock the lock handle is opened with DeleteOnClose, so the OS removes the
-  # sidecar atomically when the handle is released - no window where a freshly acquired
-  # lock could be deleted under its holder.
+  # DeleteOnClose: the OS removes the sidecar when the handle closes, so a live holder
+  # never loses it.
   Invoke-PrtgStateOperation -PrtgOpKey $Key -PrtgOpPath $Path -PrtgOpTimeout $TimeoutSeconds `
     -PrtgOpForce:$Force -PrtgOpDeleteOnRelease:($ClearLock -and -not $Force) -PrtgOpBlock $action
 

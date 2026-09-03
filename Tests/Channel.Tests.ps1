@@ -1,6 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 }
 
 Describe 'New-PrtgChannel' {
@@ -96,12 +96,8 @@ Describe 'New-PrtgChannel' {
 }
 
 Describe 'New-PrtgChannel emits every accepted unit' {
-  # SpeedDisk and SpeedNet share the speed-companion branch with BytesBandwidth, and BytesFile
-  # shares the volume-size branch with BytesDisk; each unit has its own row regardless, because
-  # coverage counts executed commands, not the input space.
-  #
-  # Assertions are on the serialized output rather than the returned object. Binding a parameter
-  # and emitting it are different things, and only the second is what a sensor author sees.
+  # Every unit gets its own row, even where two units share a companion branch. The assertions
+  # read the serialized output: binding a parameter and emitting it are different things.
   BeforeEach { Clear-PrtgOutput }
 
   It 'covers every unit the cmdlet accepts' {

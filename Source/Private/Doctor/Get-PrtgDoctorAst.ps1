@@ -3,8 +3,7 @@ function Get-PrtgDoctorAst {
   .SYNOPSIS
     Parses a sensor script into AST, tokens, and parse errors for the Doctor checks.
   .DESCRIPTION
-    Thin wrapper around the PowerShell language parser. The script is only PARSED, never
-    executed - the Doctor must be safe to run against untrusted or broken sensor scripts.
+    Thin wrapper around the PowerShell language parser. The script is parsed, never executed.
   #>
   [CmdletBinding()]
   param(

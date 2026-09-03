@@ -1,6 +1,10 @@
 function New-PrtgOutputDocument {
-  # The single definition of the output document's shape.
-  # 'result' is an ArrayList rather than an array because Add-PrtgChannel appends to it in place.
+  <#
+  .SYNOPSIS
+    The single definition of the output document's shape.
+  .DESCRIPTION
+    'result' is an ArrayList, not an array, because Add-PrtgChannel appends to it in place.
+  #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
     Justification = 'Pure factory that returns a new in-memory object; it changes no state, so -WhatIf/-Confirm do not apply.')]
   [CmdletBinding()]

@@ -21,9 +21,8 @@ function Test-PrtgDoctorPSK0008 {
       $statement = $_
       if ($statement -is [System.Management.Automation.Language.AssignmentStatementAst]) { return $false }
       if ($statement -is [System.Management.Automation.Language.PipelineAst]) { return $true }
-      # Control flow after the sensor call: any pipeline in OUTPUT position inside it
-      # (direct child of a statement block, not a condition or an assignment RHS) can
-      # write to stdout at runtime, so the whole statement is flagged.
+      # A pipeline in output position (direct child of a statement or named block, not a
+      # condition or an assignment right-hand side) can write to stdout, so it is flagged.
       [bool]$statement.Find({
         $args[0] -is [System.Management.Automation.Language.PipelineAst] -and
         ($args[0].Parent -is [System.Management.Automation.Language.StatementBlockAst] -or

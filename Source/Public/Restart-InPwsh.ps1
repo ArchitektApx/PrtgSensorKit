@@ -24,7 +24,7 @@ function Restart-InPwsh {
   [CmdletBinding()]
   param()
 
-  # Desktop edition == Windows PowerShell 5.1; Core == pwsh 6+, so only act on Desktop
+  # Desktop edition is Windows PowerShell 5.1; Core is pwsh 6+.
   if ($PSVersionTable.PSEdition -eq 'Desktop') {
     $Pwsh = Get-Command -Name 'pwsh' -CommandType Application -ErrorAction SilentlyContinue |
       Select-Object -First 1

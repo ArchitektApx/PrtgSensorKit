@@ -3,13 +3,8 @@ function Get-PrtgNewestEntry {
   .SYNOPSIS
     Returns the newest entry of a state history, or $null for an empty one.
   .DESCRIPTION
-    Shared by Get-PrtgSensorState -Latest and Use-PrtgCachedResult, which must agree on which
-    entry is "the newest" - including the tie-break, which is not obvious.
-
-    A single pass instead of sorting the whole list: this runs on every scan interval and a
-    history can be large when -MaxEntries is not used on save. The comparison is -ge, not -gt,
-    because UtcNow has ~15 ms resolution on .NET Framework and two quick saves can carry
-    IDENTICAL timestamps; file order is append order, so on a tie the later-appended entry wins.
+    Single pass, not a sort. The comparison is -ge: UtcNow has ~15 ms resolution, so a tie
+    goes to the later-appended entry (ADR 0002).
   #>
   [CmdletBinding()]
   param(

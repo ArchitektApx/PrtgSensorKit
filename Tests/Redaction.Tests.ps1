@@ -1,6 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 }
 
 AfterAll {
@@ -106,6 +106,12 @@ Describe 'Redaction reaches the sensor output' {
     Get-PrtgMessage | Should -Be 'auth failed for Sup3rS*****'
   }
 
+  It 'masks a registered secret in a piped sensor message' {
+    InModuleScope PrtgSensorKit { Add-PrtgRedaction 'Sup3rSecret!Pa55' }
+    'auth failed for Sup3rSecret!Pa55' | Set-PrtgMessage
+    Get-PrtgMessage | Should -Be 'auth failed for Sup3rS*****'
+  }
+
   It 'masks a registered secret in the error text' {
     InModuleScope PrtgSensorKit { Add-PrtgRedaction 'Sup3rSecret!Pa55' }
     $json = Write-PrtgError -ErrorString 'https://api/?pw=Sup3rSecret!Pa55 returned 401' | ConvertFrom-Json
@@ -114,19 +120,16 @@ Describe 'Redaction reaches the sensor output' {
   }
 
   It 'masks a secret containing # even though # is stripped from PRTG messages' {
-    # Order matters: strip first and 'Pa##word123456' becomes 'Password123456', which no
-    # longer matches the registered secret - a silent leak in exactly the case this exists for.
-    # Registered value is 14 chars, so 5 characters are revealed ('Pa##w'), and the '#' strip
-    # then runs over the already-masked text.
+    # Order matters: strip '#' first and 'Pa##word123456' becomes 'Password123456', which no
+    # longer matches the registered secret and is emitted in the clear.
     InModuleScope PrtgSensorKit { Add-PrtgRedaction 'Pa##word123456' }
     Set-PrtgMessage 'bad credential Pa##word123456 rejected'
     Get-PrtgMessage | Should -Be 'bad credential Paw***** rejected'
   }
 
   It 'masks a secret that straddles the 2000-character truncation boundary' {
-    # Truncate first and the tail of the secret is cut off, so the surviving fragment
-    # ('abcdef123456789') matches nothing and is emitted in the clear. Redacting first
-    # shortens the text to exactly 2000, so nothing is truncated at all.
+    # Truncate first and the tail of the secret is cut off, so the surviving fragment matches
+    # nothing and is emitted in the clear.
     InModuleScope PrtgSensorKit { Add-PrtgRedaction 'abcdef1234567890' }
     Set-PrtgMessage (('x' * 1985) + 'abcdef1234567890' + 'tail')
     $message = Get-PrtgMessage
@@ -239,9 +242,8 @@ Describe 'Redaction seeding' {
 
 Describe 'Redaction reaches the log file' {
   AfterEach {
-    # In AfterEach, not at the end of the It: a failing assertion above would otherwise skip
-    # the reset and leave the module's log state pointed at a dead $TestDrive path for every
-    # later test in the session.
+    # In AfterEach, not at the end of the It: a failing assertion would skip the reset and leave
+    # the module's log state pointed at a dead $TestDrive path.
     InModuleScope PrtgSensorKit {
       $script:PrtgRedactions.Clear()
       $script:PrtgLogFile = $null

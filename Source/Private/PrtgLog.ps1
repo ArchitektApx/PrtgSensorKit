@@ -1,7 +1,5 @@
-# Module-scope logging state. One log file per sensor invocation (process): the first
-# Write-PrtgLog call creates the run file and caches its path here; every later call in
-# the same process appends to it. Invoke-PrtgSensor -EnableLogging sets the directory and
-# retention for the duration of the call and restores them afterwards.
+# Module-scope logging state. One run file per process: the first Write-PrtgLog call creates
+# it and caches its path here, and every later call in the same process appends.
 $script:PrtgLogFile = $null
 $script:PrtgLogDirectory = $null
 $script:PrtgLogMaxLogs = 30
@@ -10,24 +8,30 @@ $script:PrtgLogMaxLogs = 30
 $script:PrtgLogEncoding = [System.Text.UTF8Encoding]::new($PSVersionTable.PSEdition -eq 'Desktop')
 
 function Get-PrtgLogCallerScriptPath {
-  # Full path of the first non-module script on the call stack, or $null when invoked
-  # interactively. Anchors the run-file name and relative -LogPath resolution to the
-  # user's sensor script instead of this module or the process CWD (PRTG starts sensors
-  # with an unhelpful CWD).
+  <#
+    .SYNOPSIS
+      Full path of the first non-module script on the call stack, or $null when interactive.
+  #>
   [CmdletBinding()]
   [OutputType([string])]
   param()
 
+  # A module frame is recognised by folder (ModuleBase), not by file name: the build is one
+  # file, an import from Source/ is many.
+  $moduleRoot = $ExecutionContext.SessionState.Module.ModuleBase + [IO.Path]::DirectorySeparatorChar
+  $casing = if (Test-PrtgWindows) { [StringComparison]::OrdinalIgnoreCase } else { [StringComparison]::Ordinal }
   $frame = Get-PSCallStack | Where-Object {
-    $_.ScriptName -and $_.ScriptName -notmatch '[\\/]PrtgSensorKit\.psm1$'
+    $_.ScriptName -and -not $_.ScriptName.StartsWith($moduleRoot, $casing)
   } | Select-Object -First 1
   if ($frame) { return $frame.ScriptName }
   return $null
 }
 
 function Get-PrtgLogScriptName {
-  # File name (no extension) of the invoking script; 'console' when interactive. Used
-  # for the default log folder and the run-file name.
+  <#
+    .SYNOPSIS
+      File name without extension of the invoking script; 'console' when interactive.
+  #>
   [CmdletBinding()]
   [OutputType([string])]
   param()
@@ -43,14 +47,8 @@ function Push-PrtgLogScope {
       Points the session log directory and retention at one call's settings, and returns the
       token that puts them back.
     .DESCRIPTION
-      The caller decides whether logging is on at all; this is only ever reached when it is.
-
-      -LogPath and -MaxLogs are read as bound-or-not rather than by value, because an omitted
-      -LogPath must leave the session directory alone while an explicit one that happens to
-      match it must still be honored.
-
-      A relative -LogPath anchors to the sensor script rather than to the working directory:
-      PRTG starts sensors with an unhelpful one.
+      -LogPath and -MaxLogs are read bound-or-not, so an omitted -LogPath leaves the session
+      directory alone. A relative -LogPath anchors to the sensor script.
   #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
     Justification = 'Logging-internal scope switch, undone by Pop-PrtgLogScope; the public cmdlet contract is fire-and-forget.')]
@@ -100,13 +98,8 @@ function Pop-PrtgLogScope {
     .SYNOPSIS
       Restores what Push-PrtgLogScope saved.
     .DESCRIPTION
-      A null token is a no-op, so the caller's restore is one unconditional line and cannot
-      grow a second guard that disagrees with the push's.
-
-      The run file restore is deliberately asymmetric with the directory and retention
-      restores, and must stay that way. Only the push branch that DISCARDED the run file sets
-      RestoreFile. Restoring unconditionally would null the run file this call itself created,
-      and the script's next Write-PrtgLog would start a SECOND file instead of appending.
+      A null token is a no-op. The run file is restored only when Push discarded it; an
+      unconditional restore would split one run into two files.
   #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
     Justification = 'Logging-internal scope restore paired with Push-PrtgLogScope; the public cmdlet contract is fire-and-forget.')]
@@ -125,9 +118,12 @@ function Pop-PrtgLogScope {
 }
 
 function New-PrtgLogFile {
-  # Creates this invocation's run log file (writing the first entry) and prunes old run
-  # files beyond the retention count. Callers handle exceptions; Write-PrtgLog wraps
-  # everything in its never-throw guard.
+  <#
+    .SYNOPSIS
+      Creates this invocation's run log file with its first entry and prunes old run files.
+    .DESCRIPTION
+      Exceptions propagate to the caller.
+  #>
   [Diagnostics.CodeAnalysis.SuppressMessageAttribute('PSUseShouldProcessForStateChangingFunctions', '',
     Justification = 'Logging-internal file creation; the public cmdlet contract is fire-and-forget.')]
   [CmdletBinding()]
@@ -147,9 +143,8 @@ function New-PrtgLogFile {
     [void] (New-Item -ItemType Directory -Path $directory -Force)
   }
 
-  # The PID disambiguates two sibling sensors starting in the same second. Invariant
-  # culture: default formatting would render non-Gregorian years (Buddhist, Hijri) on
-  # probes with those OS cultures.
+  # The PID disambiguates two sibling sensors starting in the same second. Invariant culture:
+  # the default would render non-Gregorian years on probes with those OS cultures.
   $stamp = [DateTime]::Now.ToString('yyyyMMdd-HHmmss', [System.Globalization.CultureInfo]::InvariantCulture)
   $file = Join-Path $directory ('{0}_{1}_{2}.log' -f $scriptName, $stamp, $PID)
   [System.IO.File]::WriteAllText($file, $FirstLine, $script:PrtgLogEncoding)
@@ -157,13 +152,8 @@ function New-PrtgLogFile {
   # Keep the newest MaxLogs run files (the new one counts); 0 = keep all. Delete failures
   # are swallowed: concurrent sensors pruning the same folder race harmlessly.
   if ($script:PrtgLogMaxLogs -gt 0) {
-    # Prune only run files THIS script wrote (the full '<name>_<stamp>_<pid>.log' shape built
-    # above). A -LogPath may be shared - two sensors in one folder, or a folder holding
-    # unrelated application logs - and the sweep must never delete a file this module did not
-    # create. [regex]::Escape guards script names containing regex metacharacters
-    # ('sensor[1].ps1'); the '$' anchor also keeps the 8.3 short-name protection documented in
-    # Remove-PrtgStaleTempFile.ps1. Retention is therefore per script name: run files of a
-    # since-renamed script are never pruned.
+    # The sweep prunes only this script's own run-file pattern, because a -LogPath may be
+    # shared. [regex]::Escape guards script names holding regex metacharacters.
     $ownRunFile = '^' + [regex]::Escape($scriptName) + '_\d{8}-\d{6}_\d+\.log$'
     $stale = @(Get-ChildItem -LiteralPath $directory -Filter '*.log' -File |
       Where-Object { $_.Name -match $ownRunFile } |

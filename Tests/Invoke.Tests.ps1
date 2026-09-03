@@ -1,6 +1,6 @@
 BeforeAll {
   . $PSScriptRoot/_TestHelpers.ps1
-  Import-BuiltPrtgModule
+  Import-ModuleUnderTest
 }
 
 Describe 'Invoke-PrtgSensor' {
@@ -203,7 +203,7 @@ Describe 'Invoke-PrtgSensor error action' {
   }
 
   It 'lets the block opt out by assigning $ErrorActionPreference itself' {
-    # Pins the Examples/16 contract.
+    # A block that sets $ErrorActionPreference itself keeps that setting for its whole run.
     $json = Invoke-PrtgSensor {
       $ErrorActionPreference = 'SilentlyContinue'
       Get-Item (Join-Path $TestDrive 'nope') | Out-Null
@@ -246,9 +246,8 @@ Describe 'Invoke-PrtgSensor error action' {
   }
 
   It 'still emits a response when an internal log write fails non-terminatingly' {
-    # Regression: 'Stop' is set on the GLOBAL preference for the user's block, and the module's
-    # own functions inherit it too. Left set for the whole cmdlet, a failed log write terminated
-    # before Write-PrtgOutput ever ran, so the sensor emitted nothing and PRTG saw a parse error.
+    # 'Stop' is set on the GLOBAL preference for the user's block and the module's own functions
+    # inherit it, so a failed log write must not terminate the cmdlet before it emits.
     Mock -CommandName Write-PrtgLog -ModuleName PrtgSensorKit -MockWith { Write-Error 'log target locked' }
     $json = Invoke-PrtgSensor -EnableLogging {
       New-PrtgChannel -Channel 'A' -Value 1 | Add-PrtgChannel

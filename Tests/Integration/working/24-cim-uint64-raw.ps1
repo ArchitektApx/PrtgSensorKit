@@ -1,15 +1,10 @@
 <#
 .SYNOPSIS
-  WORKING: raw CIM UInt64 values passed straight to New-PrtgChannel (1.3.0 change).
+  WORKING: raw CIM UInt64 values passed straight to New-PrtgChannel.
 .DESCRIPTION
-  Before 1.3.0, -Value accepted only int, int64, float, double, and decimal, so every UInt64
-  that CIM and WMI return - Win32_LogicalDisk.FreeSpace, Win32_OperatingSystem
-  .FreePhysicalMemory, Get-Volume.SizeRemaining - was REJECTED unless the caller cast it. The
-  usual workaround was [math]::Round(...), which happens to return a double; that is what
-  working/02-multichannel-with-limits.ps1 does.
-
-  From 1.3.0 every built-in numeric type is accepted, so CIM values go straight in. This
-  sensor deliberately does NO casting anywhere.
+  -Value accepts every built-in numeric type, including the UInt64 that CIM and WMI return:
+  Win32_LogicalDisk.FreeSpace, Win32_OperatingSystem.FreePhysicalMemory, Get-Volume
+  .SizeRemaining. This sensor deliberately does NO casting anywhere.
 
   Expected PRTG result: Up, one 'Free <drive>' and one 'Size <drive>' channel per fixed
   volume in bytes, plus a 'Large Value' channel, message naming the volume count.

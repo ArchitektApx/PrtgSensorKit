@@ -1,10 +1,13 @@
 function Assert-PrtgOutputDocument {
-  # Called at the point a cmdlet would otherwise fail on a null document, never on entry.
-  # Get-PrtgMessage and Write-PrtgOutput do not fail on one today and must not start to.
-  #
-  # Thrown through the calling cmdlet so the error record carries the sensor script's line, with
-  # the same exception type as the null dereference it replaces. -Action is the caller's verb
-  # phrase ending in its preposition ('add a channel to').
+  <#
+  .SYNOPSIS
+    Throws through the calling cmdlet when the output document is null.
+  .DESCRIPTION
+    Call it at the point a cmdlet would otherwise fail on a null document, not on entry. The
+    error record carries the sensor script's line and the type of the null dereference.
+  .PARAMETER Action
+    The caller's verb phrase, ending in its preposition ('add a channel to').
+  #>
   [CmdletBinding()]
   param(
     [Parameter(Mandatory = $true)]

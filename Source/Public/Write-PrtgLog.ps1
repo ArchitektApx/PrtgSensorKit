@@ -5,9 +5,9 @@ function Write-PrtgLog {
 
   .DESCRIPTION
     The safe way to debug a deployed sensor: PRTG reads the sensor result from stdout, so
-    debugging output must go to a file - and Write-PrtgLog is that file writer, batteries
-    included. Each sensor invocation (process) gets its own log file, so a failing run is
-    one self-contained file and concurrent sensor runs never write into each other.
+    debugging output must go to a file, and Write-PrtgLog is that file writer. Each sensor
+    invocation (process) gets its own log file, so a failing run is one self-contained file
+    and concurrent sensor runs never write into each other.
 
     Where the file goes:
 

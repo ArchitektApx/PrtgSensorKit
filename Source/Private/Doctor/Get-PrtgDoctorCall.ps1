@@ -1,5 +1,8 @@
 function Get-PrtgDoctorCall {
-  # Every call to one of the named commands, read from the parse context's single command scan.
+  <#
+  .SYNOPSIS
+    Every call in the analyzed script to one of the named commands.
+  #>
   [CmdletBinding()]
   [OutputType([System.Management.Automation.Language.CommandAst[]])]
   param(

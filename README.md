@@ -5,7 +5,7 @@
 **PowerShell framework for building [PRTG](https://www.paessler.com/) custom EXE/Script Advanced sensors - less boilerplate, valid JSON output every time.**
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Version](https://img.shields.io/badge/Version-1.4.3-green.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/Version-1.5.0-green.svg)](CHANGELOG.md)
 [![Platform](https://img.shields.io/badge/PowerShell-5.1%20|%207+-blue.svg)](https://github.com/PowerShell/PowerShell)
 [![Built with ModuleBuilder](https://img.shields.io/badge/Built%20with-ModuleBuilder-8A2BE2.svg)](https://github.com/PoshCode/ModuleBuilder)
 
@@ -171,8 +171,10 @@ lower-level commands directly.
 ```powershell
 ./tasks.ps1 install_dev_requirements   # ModuleBuilder, Configuration, Pester, PSScriptAnalyzer
 ./tasks.ps1 lint                       # PSScriptAnalyzer style + 5.1/7.0 compatibility checks
-./tasks.ps1 build                      # builds to ./Dist, then runs the Pester suite
-./tasks.ps1 test                       # runs the Pester suite against the built module
+./tasks.ps1 build                      # builds Source/ to ./Dist
+./tasks.ps1 test                       # builds, then runs the Pester suite against Source/
+./tasks.ps1 test -Target Dist          # same suite, importing the built module instead
+./tasks.ps1 coverage                   # builds, then coverage per source file
 ./tasks.ps1 prepare_release 1.1.0      # gates + changelog check, stamps version, verified rebuild
 ```
 

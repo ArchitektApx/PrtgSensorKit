@@ -9,11 +9,8 @@ function Test-PrtgDoctorPSK0011 {
     [PSCustomObject]$Parsed
   )
 
-  # Windows PowerShell 5.1 parses BOM-less .ps1 files as ANSI (Windows-1252): a BOM-less
-  # UTF-8 file with umlauts or degree signs is silently misread at parse time and the
-  # mojibake lands in channel names. pwsh defaults BOM-less files to UTF-8, so the script
-  # looks correct when tested there and breaks only under PRTG's 5.1 host. This runs even
-  # when the script fails to parse - a wrong encoding can BE the parse failure.
+  # Windows PowerShell 5.1 parses BOM-less .ps1 as ANSI, pwsh as UTF-8, so mojibake appears
+  # only under PRTG. This runs even on a script that fails to parse: encoding can be the cause.
   $bytes = [System.IO.File]::ReadAllBytes($Parsed.ScriptPath)
   # UTF-8, UTF-16 LE/BE, and UTF-32 BE BOMs; the FF FE prefix also covers UTF-32 LE.
   $hasBom = ($bytes.Length -ge 3 -and $bytes[0] -eq 0xEF -and $bytes[1] -eq 0xBB -and $bytes[2] -eq 0xBF) -or

@@ -1,12 +1,34 @@
+<#
+.SYNOPSIS
+  Dev task runner.
+.PARAMETER Task
+  build, test, lint, fuzz, coverage, install_dev_requirements or prepare_release.
+.PARAMETER Version
+  Release version for prepare_release.
+.PARAMETER MinimumPercent
+  coverage only: fail the run when coverage drops below this percentage.
+.PARAMETER Target
+  test only: tree the behaviour tests import. The artifact tests always read the build.
+.PARAMETER Path
+  test only: one test file or folder instead of the whole test folder.
+#>
+
 param(
+  # Task and Version both declare a Position: once one parameter does, the others stop binding
+  # positionally, and './tasks.ps1 test' silently runs the default task.
+  [Parameter(Position = 0)]
   [ValidateSet('build', 'test', 'lint', 'fuzz', 'coverage', 'install_dev_requirements', 'prepare_release')]
   [string]$Task = 'build',
 
-  # Only used by prepare_release: ./tasks.ps1 prepare_release 1.1.0
+  [Parameter(Position = 1)]
   [string]$Version,
 
-  # Only used by coverage: fail the run when coverage drops below this percentage.
-  [double]$MinimumPercent = 0
+  [double]$MinimumPercent = 0,
+
+  [ValidateSet('Source', 'Dist')]
+  [string]$Target = 'Source',
+
+  [string]$Path
 )
 
 switch ($Task) {
@@ -15,7 +37,10 @@ switch ($Task) {
     break
   }
   'test' {
-    . $(Join-Path "Tools" "tests.ps1")
+    # Splatted so an unset -Path falls through to the whole test folder, not an empty string.
+    $testArgs = @{ Target = $Target }
+    if ($Path) { $testArgs.Path = $Path }
+    . $(Join-Path "Tools" "tests.ps1") @testArgs
     break
   }
   'lint' {
@@ -36,8 +61,8 @@ switch ($Task) {
   }
   'prepare_release' {
     if (-not $Version) {
-      # throw, not Write-Error: the process must exit non-zero so CI cannot mistake a
-      # botched invocation for a prepared release.
+      # The process must exit non-zero, so CI cannot mistake a botched invocation for a
+      # prepared release.
       throw "prepare_release needs a version: ./tasks.ps1 prepare_release <x.y.z>"
     }
     . $(Join-Path "Tools" "prepare_release.ps1") -Version $Version

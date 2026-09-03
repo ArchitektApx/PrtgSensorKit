@@ -65,7 +65,7 @@ function Add-PrtgChannel {
       throw "A channel named '$($PrtgChannel.Channel)' was already added; PRTG requires channel names to be unique per sensor."
     }
 
-    # After the two checks above, which pass on a null document: failing earlier would be new.
+    # Runs after the count and name checks, which tolerate a null document.
     Assert-PrtgOutputDocument -Caller $PSCmdlet -Action 'add a channel to' -Document $script:OutputObject
 
     [void] $script:OutputObject.prtg.result.Add($PrtgChannel)

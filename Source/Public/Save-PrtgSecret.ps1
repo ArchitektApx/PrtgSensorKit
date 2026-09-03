@@ -89,8 +89,6 @@ function Save-PrtgSecret {
 
   $Path = Get-PrtgSecretPath -Path $Path
 
-  # Creation stays here rather than in the resolver, which only answers where the secret lives:
-  # this is the one caller that wants the folder, and reading must leave nothing behind.
   if (-not (Test-Path -LiteralPath $Path)) {
     [void] (New-Item -ItemType Directory -Path $Path -Force)
   }
@@ -98,49 +96,33 @@ function Save-PrtgSecret {
   $file = Join-Path $Path "$Name.clixml"
   $object = if ($PSCmdlet.ParameterSetName -eq 'Credential') { $Credential } else { $Secret }
 
-  # Sweep leftovers from a save interrupted BEFORE this cmdlet shared the atomic writer. Those
-  # temps are named '<Name>.<guid>.tmp', while the writer derives both its temp name and its own
-  # sweep filter from the full leaf, so its '<Name>.clixml.*.tmp' filter cannot match them. A
-  # stranded secret temp holds real encrypted payload under hardened permissions, so it is swept
-  # here rather than left on disk forever. Age-limited, because the secret store has no lock: a
-  # second sensor instance saving the same name right now must keep its in-flight temp file.
+  # Sweeps stranded '<Name>.<guid>.tmp' secrets, which the writer's own '<Name>.clixml.*.tmp'
+  # filter cannot match. Age-limited: the store has no lock, so an in-flight temp must survive.
   Remove-PrtgStaleTempFile -Folder $Path -Filter "$Name.*.tmp"
 
-  # NTFS ACL hardening is Windows-only; the DPAPI protection is what matters and only exists here.
-  # Applied at BOTH hook points on purpose: to the temp file before the blob is written, so the
-  # secret never exists under inherited ProgramData permissions, and to the destination after the
-  # swap, because [System.IO.File]::Replace keeps the ACL of the file it replaced - a secret
-  # re-saved by a different account would otherwise stay locked to the previous one.
-  #
-  # The store FOLDER is deliberately left alone: it is shared by every sensor account on the
-  # probe, and locking it to one account locks the others out of their own secret files.
+  # Hardened twice: the temp file before the write, the destination after the swap, because
+  # File.Replace keeps the replaced file's ACL. The shared store folder is never touched.
   $writeArgs = @{
     PrtgWriteInputObject = $object
     PrtgWriteLiteralPath = $file
   }
   if ($onWindows) {
-    # The path arrives as an argument, so the block never resolves it up the dynamic scope chain.
+    # The path arrives as an argument, so the block cannot resolve it up the scope chain (ADR 0001).
     $harden = { param($PrtgSecretHardenPath) Set-PrtgSecretAcl -Path $PrtgSecretHardenPath }
     $writeArgs['PrtgWriteBeforeWrite'] = $harden
     $writeArgs['PrtgWriteAfterSwap'] = $harden
   }
 
-  # Captured BEFORE the write, because a successful write creates the file. Only a destination
-  # that already exists can be the collision the message below describes, and the swap is the
-  # only step that can fail on one. Without this gate every access-denied and IO failure from
-  # preparing or writing the temp file - a read-only folder, a failing ACL, a full disk - would
-  # be reported as a name collision and send the operator to delete a healthy secret.
+  # Captured before the write, which creates the file. Only an existing destination can be the
+  # collision below; without this gate any IO failure would be reported as one.
   $destinationExisted = Test-Path -LiteralPath $file
 
   try {
     Export-PrtgClixmlAtomic @writeArgs
   } catch [System.UnauthorizedAccessException], [System.IO.IOException] {
     if (-not $destinationExisted) { throw }
-    # The store folder is shared, but each secret file is locked to the account that saved it,
-    # so the swap is where a name collision between accounts surfaces. Without this the operator
-    # only sees a raw access-denied naming the temporary file. This stays a wrapper rather than a
-    # hook: it encodes a secret-store concept the generic writer has no business knowing, and the
-    # writer's own cleanup catch runs first, so this arm sees the exception only after a rethrow.
+    # The store folder is shared but each secret file is locked to the account that saved it,
+    # so the swap is where a name collision between accounts surfaces.
     $who = if ($onWindows) { [System.Security.Principal.WindowsIdentity]::GetCurrent().Name } else { $env:USER }
     throw ("Failed to replace secret '$Name' at '$file' while running as '$who'. The existing " +
       "file belongs to another account or is held open by another process. Delete it as an " +
