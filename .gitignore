@@ -22,5 +22,5 @@ Tools/fuzz-failures/
 .scratch/
 LOOP.md
 
-# Understand-Anything knowledge graph
-.ua/
+# local dev
+AGENTS.local.md
