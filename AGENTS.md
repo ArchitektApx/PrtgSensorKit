@@ -25,5 +25,5 @@ file. See `Docs/agents/triage-labels.md`.
 
 ### Domain docs
 
-Single-context: `CONTEXT.md` and `Docs/adr/` at the repo root.
+Single-context: `GLOSSARY.md` and `Docs/adr/` at the repo root.
 See `Docs/agents/domain.md`.
